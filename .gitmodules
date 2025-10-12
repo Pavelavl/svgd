@@ -1,3 +1,6 @@
 [submodule "inih"]
 	path = inih
 	url = https://github.com/benhoyt/inih.git
+[submodule "lsrp"]
+	path = lsrp
+	url = https://github.com/Pavelavl/lsrp
