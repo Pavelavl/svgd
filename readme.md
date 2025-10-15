@@ -1,4 +1,5 @@
 # svgd
+Демон-генератор свг файлов
 
 ## Установка и настройка
 ### Требования
@@ -7,7 +8,6 @@
 - librrd-dev — библиотека для работы с RRD-файлами.
 - libduktape-dev — JavaScript-движок Duktape для генерации SVG.
 - gcc — компилятор для сборки программы.
-- rrdcached — демон для кэширования RRD-данных.
 - inih
 - collectd
 
@@ -63,14 +63,14 @@ sudo chown $(whoami) /opt/collectd/var/lib/collectd/rrd /var/lib/rrdcached/journ
 
 ## Сборка и запуск сервера
 
-### Скомпилируйте сервер:
+### Скомпилируйте сервер
 ```sh
-gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
+make build
 ```
 
-Запустите сервер, указав путь к конфигурационному файлу (по умолчанию config.ini):
+### Запустите сервер
 ```sh
-./svgd config.ini
+make run
 ```
 Сервер запустится на порту, указанном в config.ini (по умолчанию 8080).
 
@@ -85,7 +85,6 @@ gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
 
 > #### server:
 > - tcp_port — порт, на котором запускается HTTP-сервер (по умолчанию 8080).
-> - rrdcached_addr — адрес rrdcached (например, unix:/var/run/rrdcached.sock).
 > - allowed_ips — список разрешённых IP-адресов для доступа (например, 127.0.0.1).
 
 > #### rrd:
@@ -104,11 +103,11 @@ gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
 ---
 
 ## API
-> Сервер предоставляет HTTP API для получения SVG-графиков метрик системы. Все запросы отправляются по адресу http://localhost:8080/<endpoint>. Параметр period (в секундах) можно добавить в запрос, чтобы указать временной диапазон данных (по умолчанию 3600 секунд, или 1 час), например: http://localhost:8080/cpu?period=7200.
+> Сервер предоставляет [LSRP](https://github.com/pavelavl/lsrp) API для получения SVG-графиков метрик системы. Все запросы отправляются по адресу localhost:8080 "endpoint=<endpoint>". Параметр period (в секундах) можно добавить в запрос, чтобы указать временной диапазон данных (по умолчанию 3600 секунд, или 1 час), например: localhost:8080 "endpoint=cpu&period=7200".
 
 ### 1. Общая загрузка CPU
 
-- Эндпоинт: GET /cpu
+- Эндпоинт: cpu
 - Описание: Возвращает SVG-график общей загрузки CPU в процентах (0–100%).
 - Метрика: cpu_total
 - RRD-файл: <rrd_base_path>/<path_cpu_total> (например, /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd)
@@ -117,7 +116,7 @@ gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
 
 ### 2. Загрузка CPU для процесса
 
-- Эндпоинт: GET /cpu/process/<process_name>
+- Эндпоинт: cpu/process/<process_name>
 - Описание: Возвращает SVG-график времени CPU для указанного процесса (в секундах).
 - Метрика: cpu_process
 - RRD-файл: <rrd_base_path>/<path_cpu_process> с заменой %s на <process_name> (например, /opt/collectd/var/lib/collectd/rrd/localhost/processes-postgres/ps_cputime.rrd)
@@ -126,7 +125,7 @@ gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
 
 ### 3. Общая загрузка памяти
 
-- Эндпоинт: GET /ram
+- Эндпоинт: ram
 - Описание: Возвращает SVG-график общей загрузки памяти в процентах (0–100%).
 - Метрика: ram_total
 - RRD-файл: <rrd_base_path>/<path_ram_total> (например, /opt/collectd/var/lib/collectd/rrd/localhost/memory/percent-used.rrd)
@@ -135,7 +134,7 @@ gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
 
 ### 4. Использование памяти процессом
 
-- Эндпоинт: GET /ram/process/<process_name>
+- Эндпоинт: ram/process/<process_name>
 - Описание: Возвращает SVG-график использования памяти указанным процессом (в мегабайтах).
 - Метрика: ram_process
 - RRD-файл: <rrd_base_path>/<path_ram_process> с заменой %s на <process_name> (например, /opt/collectd/var/lib/collectd/rrd/localhost/processes-postgres/ps_rss.rrd)
@@ -144,7 +143,7 @@ gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
 
 ### 5. Сетевой трафик
 
-- Эндпоинт: GET /network/<interface>
+- Эндпоинт: network/<interface>
 - Описание: Возвращает SVG-график сетевого трафика для указанного интерфейса (в байтах/с).
 - Метрика: network
 - RRD-файл: <rrd_base_path>/<path_network> с заменой %s на <interface> (например, /opt/collectd/var/lib/collectd/rrd/localhost/interface-eth0/if_octets.rrd)
@@ -153,7 +152,7 @@ gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
 
 ### 6. Дисковые операции
 
-- Эндпоинт: GET /disk/<disk>
+- Эндпоинт: disk/<disk>
 - Описание: Возвращает SVG-график операций ввода-вывода для указанного диска (операции/с).
 - Метрика: disk
 - RRD-файл: <rrd_base_path>/<path_disk> с заменой %s на <disk> (например, /opt/collectd/var/lib/collectd/rrd/localhost/disk-sda/disk_ops.rrd)
@@ -163,7 +162,7 @@ gcc -o svgd src/*.c inih/ini.c -Iinih -lrrd -lduktape
 
 ### 7. Соединения PostgreSQL
 
-- Эндпоинт: GET /postgresql/connections
+- Эндпоинт: postgresql/connections
 - Описание: Возвращает SVG-график количества активных соединений PostgreSQL.
 - Метрика: postgresql_connections
 - RRD-файл: <rrd_base_path>/<path_postgresql_connections> (например, /opt/collectd/var/lib/collectd/rrd/localhost/postgresql-stand/pg-numbackends.rrd)
