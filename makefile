@@ -22,10 +22,13 @@ SVG_FILES = \
 
 .PHONY: all build generate clean
 
+run:
+	./bin/svgd
+
 all: build generate
 
 build:
-	$(CC) -o $(SERVER_BIN) $(SERVER_SRC) $(CFLAGS) $(LIBS)
+	$(CC) -o bin/$(SERVER_BIN) $(SERVER_SRC) -g $(CFLAGS) $(LIBS)
 
 generate:
 	$(CLIENT_BIN) localhost:8080 "endpoint=cpu" > examples/cpu.svg && \

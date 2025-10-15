@@ -1,61 +1,60 @@
 #include "../include/rrd_r.h"
 
-MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *metric_type, char *param1) {
-    int is_unix = 0;
-    const char *socket_path = rrdcached_addr;
-    
-    if (strncmp(rrdcached_addr, "unix:", 5) == 0) {
-        is_unix = 1;
-        socket_path = rrdcached_addr + 5;
-        if (access(socket_path, F_OK) != 0) {
-            fprintf(stderr, "RRDcached socket not found: %s\n", socket_path);
-            return NULL;
-        }
-    }
-
-    if (rrdc_connect(rrdcached_addr) != 0) {
-        fprintf(stderr, "Failed to connect to rrdcached at %s: %s\n", rrdcached_addr, rrd_get_error());
-        return NULL;
-    }
-
-    if (rrdc_flush(filename) != 0) {
-        fprintf(stderr, "Failed to flush RRD file: %s\n", rrd_get_error());
-        rrdc_disconnect();
-        return NULL;
-    }
-
+MetricData *fetch_metric_data(const char *filename, time_t start, char *metric_type, char *param1) {
     time_t end = time(NULL);
     unsigned long step;
     unsigned long ds_cnt;
     char **ds_names = NULL;
     rrd_value_t *data = NULL;
 
-    int status = -1;
-    for (int attempt = 0; attempt < 3 && status != 0; attempt++) {
-        status = rrdc_fetch(filename, "AVERAGE", &start, &end, &step, &ds_cnt, &ds_names, &data);
-        if (status != 0 && attempt < 2) {
-            sleep(1);
-            fprintf(stderr, "Retrying fetch for %s...\n", filename);
-        }
+    if (end - start > 3600) {
+        start = end - 3600; // Enforce 1-hour range to match period=3600
+        fprintf(stderr, "Adjusted time range to 1 hour: start=%ld (%s), end=%ld (%s)\n", 
+                start, ctime(&start), end, ctime(&end));
     }
 
+    fprintf(stderr, "Fetching data for %s, start=%ld (%s), end=%ld (%s)\n", 
+                filename, start, ctime(&start), end, ctime(&end));
+    int status = rrd_fetch_r(filename, "AVERAGE", &start, &end, &step, &ds_cnt, &ds_names, &data);
     if (status != 0) {
         fprintf(stderr, "RRD fetch failed for %s: %s\n", filename, rrd_get_error());
-        rrdc_disconnect();
         return NULL;
     }
 
-    int num_points = (end - start) / step;
+    fprintf(stderr, "After rrd_fetch_r: start=%ld, end=%ld, step=%lu, ds_cnt=%lu\n", start, end, step, ds_cnt);
+    for (unsigned long ds = 0; ds < ds_cnt; ds++) {
+        fprintf(stderr, "Data source %lu: %s\n", ds, ds_names[ds]);
+    }
+
+    // Validate step to ensure high-resolution RRA (10s from rrdtool info)
+    if (step == 0 || step > 60) { // Max step for high-resolution is ~60s
+        fprintf(stderr, "Invalid step size %lu, using default 10s (from RRD info)\n", step);
+        step = 10; // Force 10s step for rra[0]
+    }
+
+    int num_points = (end - start + step - 1) / step; // Round up to include partial steps
+    fprintf(stderr, "Calculated num_points=%d\n", num_points);
     if (num_points <= 0) {
-        fprintf(stderr, "No data points in range for %s\n", filename);
-        rrdc_disconnect();
+        fprintf(stderr, "No data points in range for %s (start=%ld, end=%ld, step=%lu)\n", filename, start, end, step);
+        if (ds_names) rrd_freemem(ds_names);
+        if (data) rrd_freemem(data);
         return NULL;
+    }
+
+    // Debug: Log raw data values
+    for (int i = 0; i < num_points; i++) {
+        for (unsigned long ds = 0; ds < ds_cnt; ds++) {
+            double value = data[i * ds_cnt + ds];
+            fprintf(stderr, "Raw data point %d, ds=%lu: timestamp=%ld (%s), value=%f\n", 
+                    i, ds, start + i * step, ctime(&(time_t){start + i * step}), value);
+        }
     }
 
     MetricData *metric_data = malloc(sizeof(MetricData));
     if (!metric_data) {
         perror("Memory allocation failed");
-        rrdc_disconnect();
+        if (ds_names) rrd_freemem(ds_names);
+        if (data) rrd_freemem(data);
         return NULL;
     }
 
@@ -74,12 +73,14 @@ MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, 
         for (int i = 0; i < num_points; i++) {
             double user = data[i * ds_cnt + (ds_cnt >= 1 ? 0 : 0)];
             double syst = data[i * ds_cnt + (ds_cnt >= 2 ? 1 : 0)];
-            double total = (isnan(user) ? 0 : user) + (isnan(syst) ? 0 : syst);
-            if (!isnan(total) && total >= 0) {
-                metric_data->series_data[0][metric_data->series_counts[0]].timestamp = start + i * step;
-                metric_data->series_data[0][metric_data->series_counts[0]].value = total;
-                metric_data->series_counts[0]++;
-            }
+            if (isnan(user)) user = 0;
+            if (user < 0) user = 0;
+            if (isnan(syst)) syst = 0;
+            if (syst < 0) syst = 0;
+            double total = user + syst;
+            metric_data->series_data[0][metric_data->series_counts[0]].timestamp = start + i * step;
+            metric_data->series_data[0][metric_data->series_counts[0]].value = total;
+            metric_data->series_counts[0]++;
         }
     } else {
         for (int ds = 0; ds < ds_cnt; ds++) {
@@ -89,33 +90,19 @@ MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, 
 
             for (int i = 0; i < num_points; i++) {
                 double value = data[i * ds_cnt + ds];
-                if (!isnan(value) && value >= 0) {
-                    metric_data->series_data[ds][metric_data->series_counts[ds]].timestamp = start + i * step;
-                    metric_data->series_data[ds][metric_data->series_counts[ds]].value = value;
-                    metric_data->series_counts[ds]++;
-                }
+                if (isnan(value)) value = 0;
+                if (value < 0) value = 0;
+                metric_data->series_data[ds][metric_data->series_counts[ds]].timestamp = start + i * step;
+                metric_data->series_data[ds][metric_data->series_counts[ds]].value = value;
+                metric_data->series_counts[ds]++;
             }
         }
     }
 
-    int has_valid_data = 0;
-    for (int ds = 0; ds < metric_data->series_count; ds++) {
-        if (metric_data->series_counts[ds] > 0) {
-            has_valid_data = 1;
-            break;
-        }
-    }
-
-    if (!has_valid_data) {
-        fprintf(stderr, "No valid data points in RRD file: %s\n", filename);
-        free_metric_data(metric_data);
-        rrdc_disconnect();
-        return NULL;
-    }
+    // Removed the has_valid_data check and early return; points are now always added if num_points > 0
 
     if (ds_names) rrd_freemem(ds_names);
     if (data) rrd_freemem(data);
-    rrdc_disconnect();
 
     return metric_data;
 }

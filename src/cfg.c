@@ -45,7 +45,7 @@ Config load_config(const char *filename) {
       .rrdcached_addr = "unix:/var/run/rrdcached.sock",
       .allowed_ips = "127.0.0.1",
       .rrd_base_path = "/opt/collectd/var/lib/collectd/rrd/localhost",
-      .js_script_path = "scripts/generate_cpu_svg.js",
+      .js_script_path = "/home/workerpool/svgd/scripts/generate_cpu_svg.js",
       .path_cpu_total = "cpu-total/percent-active.rrd",
       .path_cpu_process = "processes-%s/ps_cputime.rrd",
       .path_ram_total = "memory/percent-used.rrd",

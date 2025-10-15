@@ -117,7 +117,7 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
     }
 
     fprintf(stderr, "Fetching data for RRD: %s, metric: %s\n", rrd_path, metric_type);
-    MetricData *data = fetch_metric_data(global_config.rrdcached_addr, rrd_path, now - period, metric_type, param1);
+    MetricData *data = fetch_metric_data(rrd_path, now - period, metric_type, param1);
     if (data) {
         fprintf(stderr, "Data fetched: %d series\n", data->series_count);
         char *svg = generate_svg(global_ctx, global_config.js_script_path, data);
