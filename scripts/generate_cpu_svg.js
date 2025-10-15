@@ -112,36 +112,83 @@ function generateSVG(series, options) {
     var timestamps = allData.map(function(d) { return d.timestamp; });
     var minTime = Math.min.apply(Math, timestamps);
     var maxTime = Math.max.apply(Math, timestamps);
+    if (maxTime - minTime > 3600) {
+        maxTime = minTime + 3600; // Enforce 1-hour range
+    }
     if (maxTime === minTime) {
-        maxTime += 1;
+        maxTime = minTime + 3600;
     }
     svg += '<g stroke-width="1">';
     for (var i = 0; i <= xSteps; i++) {
         var x = graphWidth * i / xSteps;
         var timestamp = minTime + (maxTime - minTime) * i / xSteps;
         var date = new Date(timestamp * 1000);
-        var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         svg += '<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + graphHeight + '" stroke="#eee"/>';
         svg += '<text x="' + x + '" y="' + (graphHeight + 20) + '" text-anchor="middle" font-size="10" fill="#666">' + timeStr + '</text>';
     }
     svg += '</g>';
 
     var colors = ['#4e73df', '#1cc88a', '#e74a3b', '#36b9cc'];
+    var tooltipId = 'tooltip';
     series.forEach(function(s, index) {
         var validData = s.data.filter(function(d) { return !isNaN(d.value) && d.value >= 0; });
         if (validData.length === 0) return;
 
+        // Plot the line
         var path = '';
         validData.forEach(function(d, i) {
-            var x = graphWidth * i / (validData.length - 1);
+            var x = graphWidth * (d.timestamp - minTime) / (maxTime - minTime);
             var value = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
             var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, value)) - minVal) / (maxVal - minVal));
             path += (i === 0 ? 'M' : ' L') + x.toFixed(2) + ',' + y.toFixed(2);
         });
         svg += '<path d="' + path + '" stroke="' + colors[index % colors.length] + '" fill="none" stroke-width="2" stroke-linejoin="round"/>';
+
+        // Add data points with hover effects
+        validData.forEach(function(d, i) {
+            var x = graphWidth * (d.timestamp - minTime) / (maxTime - minTime);
+            var value = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
+            var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, value)) - minVal) / (maxVal - minVal));
+            var pointId = 'point-' + s.name + '-' + i;
+            var date = new Date(d.timestamp * 1000);
+            var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            svg += '<circle id="' + pointId + '" cx="' + x.toFixed(2) + '" cy="' + y.toFixed(2) + '" r="5" fill="' + colors[index % colors.length] + '" opacity="0" onmouseover="showTooltip(evt, \'' + s.name + '\', \'' + valueFormatter(value) + '\', \'' + timeStr + '\', ' + x.toFixed(2) + ', ' + y.toFixed(2) + ')" onmouseout="hideTooltip()"/>';
+        });
     });
 
     svg += '</g>';
+
+    // Add tooltip group
+    svg += '<g id="' + tooltipId + '" visibility="hidden">';
+    svg += '<rect x="0" y="0" width="150" height="40" fill="#333" opacity="0.8" rx="5"/>';
+    svg += '<text x="5" y="15" font-size="10" fill="#fff" id="tooltip-series"></text>';
+    svg += '<text x="5" y="30" font-size="10" fill="#fff" id="tooltip-value"></text>';
+    svg += '</g>';
+
+    // Add JavaScript for hover effects
+    svg += '<script><![CDATA[';
+    svg += 'function showTooltip(evt, series, value, time, x, y) {';
+    svg += '  var tooltip = document.getElementById("' + tooltipId + '");';
+    svg += '  var seriesText = document.getElementById("tooltip-series");';
+    svg += '  var valueText = document.getElementById("tooltip-value");';
+    svg += '  seriesText.textContent = "Series: " + series;';
+    svg += '  valueText.textContent = value + " at " + time;';
+    svg += '  tooltip.setAttribute("transform", "translate(" + (x + 10) + "," + (y - 50) + ")");';
+    svg += '  tooltip.setAttribute("visibility", "visible");';
+    svg += '  evt.target.setAttribute("r", "7");';
+    svg += '  evt.target.setAttribute("opacity", "1");';
+    svg += '}';
+    svg += 'function hideTooltip() {';
+    svg += '  var tooltip = document.getElementById("' + tooltipId + '");';
+    svg += '  tooltip.setAttribute("visibility", "hidden");';
+    svg += '  var circles = document.getElementsByTagName("circle");';
+    svg += '  for (var i = 0; i < circles.length; i++) {';
+    svg += '    circles[i].setAttribute("r", "5");';
+    svg += '    circles[i].setAttribute("opacity", "0");';
+    svg += '  }';
+    svg += '}';
+    svg += ']]></script>';
 
     svg += '<text x="' + (width / 2) + '" y="20" text-anchor="middle" font-size="16" fill="#333">' + title + '</text>';
     svg += '<text x="10" y="' + (height / 2) + '" text-anchor="middle" transform="rotate(-90,10,' + (height / 2) + ')" font-size="12" fill="#666">' + yLabel + '</text>';
@@ -154,7 +201,7 @@ function generateSVG(series, options) {
         if (lastPoint && !isNaN(lastPoint.value) && lastPoint.value >= 0) {
             var value = (metricType === 'ram_process') ? lastPoint.value / 1024 / 1024 : lastPoint.value;
             var date = new Date(lastPoint.timestamp * 1000);
-            var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             svg += '<circle cx="' + currentX + '" cy="' + (legendY - 5) + '" r="5" fill="' + colors[index % colors.length] + '"/>';
             svg += '<text x="' + (currentX + 10) + '" y="' + legendY + '" fill="#333">' + s.name + ': ' + valueFormatter(value) + ' at ' + timeStr + '</text>';
             currentX += 220;
