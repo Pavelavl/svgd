@@ -52,7 +52,7 @@ Config load_config(const char *filename) {
       .path_ram_process = "processes-%s/ps_rss.rrd",
       .path_network = "interface-%s/if_octets.rrd",
       .path_disk = "disk-%s/disk_ops.rrd",
-      .path_postgresql_connections = "postgresql-iqc_stand1/backends.rrd"};
+      .path_postgresql_connections = "postgresql-iqchannels/backends.rrd"};
 
   if (ini_parse(filename, handler, &config) < 0) {
     fprintf(stderr, "Warning: Using default configuration\n");

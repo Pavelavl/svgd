@@ -51,4 +51,6 @@ test_server "with_rrdcached" "with_rrdcached"
 
 test_server "without_rrdcached" "without_rrdcached"
 
+test_server "with_rrdinfo" "with_rrdinfo"
+
 rmdir $OUTPUT_DIR
