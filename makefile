@@ -23,7 +23,7 @@ SVG_FILES = \
 .PHONY: all build generate clean
 
 run:
-	./bin/svgd
+	./bin/svgd ./config.json
 
 all: build generate
 

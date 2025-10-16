@@ -3,10 +3,10 @@
 
 #include <string.h>
 #include <stdlib.h>
+#include <duktape.h>
 
 typedef struct {
     int tcp_port;
-    char rrdcached_addr[256];
     char allowed_ips[1024];
     char rrd_base_path[256];
     char js_script_path[256];
@@ -19,6 +19,6 @@ typedef struct {
     char path_postgresql_connections[256];
 } Config;
 
-Config load_config(const char *filename);
+Config load_config(duk_context *ctx, const char *filename);
 
 #endif

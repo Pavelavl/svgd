@@ -1,5 +1,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <duktape.h>
 #include "../include/cfg.h"
 #include "../include/rrd_r.h"
 #include "../lsrp/lsrp.h"
@@ -143,13 +144,14 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
 }
 
 int main(int argc, char *argv[]) {
-    const char *config_file = (argc > 1) ? argv[1] : "config.ini";
-    global_config = load_config(config_file);
     global_ctx = duk_create_heap_default();
     if (!global_ctx) {
         fprintf(stderr, "Failed to create Duktape context\n");
         return 1;
     }
+
+    const char *config_file = (argc > 1) ? argv[1] : "config.json";
+    global_config = load_config(global_ctx, config_file);
 
     printf("Server started on port %d\n", global_config.tcp_port);
 
