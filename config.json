@@ -1,7 +1,8 @@
 {
     "server": {
-        "tcp_port": 8080,
-        "allowed_ips": "127.0.0.1"
+        "tcp_port": 8091,
+        "allowed_ips": "127.0.0.1",
+        "rrdcached_addr": "unix:/var/run/rrdcached.sock"
     },
     "rrd": {
         "base_path": "/opt/collectd/var/lib/collectd/rrd/localhost",

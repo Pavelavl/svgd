@@ -23,6 +23,7 @@ Config load_config(duk_context *ctx, const char *filename) {
     Config config = {
         .tcp_port = 8080,
         .allowed_ips = "127.0.0.1",
+        .rrdcached_addr = "unix:/var/run/rrdcached.sock",
         .rrd_base_path = "/opt/collectd/var/lib/collectd/rrd/localhost",
         .js_script_path = "/home/workerpool/svgd/scripts/generate_cpu_svg.js",
         .path_cpu_total = "cpu-total/percent-active.rrd",

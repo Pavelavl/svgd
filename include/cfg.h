@@ -9,6 +9,7 @@ typedef struct {
     int tcp_port;
     char allowed_ips[1024];
     char rrd_base_path[256];
+    char rrdcached_addr[256];
     char js_script_path[256];
     char path_cpu_total[256];
     char path_cpu_process[256];

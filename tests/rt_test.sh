@@ -7,7 +7,7 @@
 # Измеряем время с time, выводим среднее.
 
 # Параметры
-PORT=8080
+PORT=8092
 REQUESTS=10
 ENDPOINT="endpoint=cpu&period=3600"  # Пример эндпоинта, измените если нужно
 OUTPUT_DIR=temp_svgs
@@ -50,7 +50,5 @@ test_server() {
 test_server "with_rrdcached" "with_rrdcached"
 
 test_server "without_rrdcached" "without_rrdcached"
-
-test_server "with_rrdinfo" "with_rrdinfo"
 
 rmdir $OUTPUT_DIR

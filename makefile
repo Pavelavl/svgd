@@ -1,12 +1,12 @@
 CC = gcc
-CFLAGS = -Iinih -Ilsrp
+CFLAGS = -Ilsrp
 LIBS = -lrrd -lduktape
 
 LSRP_DIR = lsrp
 BIN_DIR = $(LSRP_DIR)/bin
 EXAMPLES_DIR = examples
 
-SERVER_SRC = src/*.c $(LSRP_DIR)/lsrp_server.c inih/ini.c
+SERVER_SRC = src/*.c $(LSRP_DIR)/lsrp_server.c
 SERVER_BIN = svgd
 
 CLIENT_BIN = $(BIN_DIR)/lsrp
@@ -29,6 +29,9 @@ all: build generate
 
 build:
 	$(CC) -o bin/$(SERVER_BIN) $(SERVER_SRC) -g $(CFLAGS) $(LIBS)
+
+test:
+	cd tests && go test -v ./... 
 
 generate:
 	$(CLIENT_BIN) localhost:8080 "endpoint=cpu" > examples/cpu.svg && \
