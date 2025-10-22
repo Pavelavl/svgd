@@ -31,5 +31,6 @@ MetricData* fetch_metric_data(const char *filename, time_t start, char *metric_t
 char* generate_svg(duk_context *ctx, const char *script_path, MetricData *data);
 void free_metric_data(MetricData *data);
 int load_js_file(duk_context *ctx, const char *filename);
+void free_js_cache(void);
 
 #endif

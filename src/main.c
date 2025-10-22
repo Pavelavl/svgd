@@ -161,5 +161,7 @@ int main(int argc, char *argv[]) {
     }
 
     duk_destroy_heap(global_ctx);
+    free_js_cache();
+
     return 0;
 }

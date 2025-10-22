@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"lsrp_test/http"
+
 	"github.com/Pavelavl/go-lsrp"
 )
 
@@ -20,9 +22,10 @@ var tc testCase
 
 func TestMain(m *testing.M) {
 	// Initialize test configuration
-	tc.requests = 1
+	tc.requests = 100
 	tc.concurrency = 5
-	tc.endpoint = "endpoint=cpu&period=3600"
+	tc.endpoint = "endpoint=cpu&period=3600" // LSRP format
+	tc.httpEndpoint = "cpu"                  // HTTP format
 	tc.rrdFile = "/opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd"
 	tc.outputDir = "temp_svgs"
 	tc.logDir = "logs"
@@ -61,7 +64,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Using port %d from config.json\n", tc.port)
+	fmt.Printf("Using port %d from config.json\n", tc.config.Server.TcpPort)
 	if err := tc.checkPort(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -75,36 +78,46 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func Test_RRDCachedVersusWithoutIt(t *testing.T) {
+func Test_HttpVersusLsrp(t *testing.T) {
 	tests := []struct {
 		binary    string
 		logPrefix string
 		mode      string
+		protocol  string // "http" or "lsrp"
 	}{
-		{binary: "with_rrdcached", logPrefix: "with_rrdcached", mode: "sync"},
-		{binary: "with_rrdcached", logPrefix: "with_rrdcached", mode: "parallel"},
-		{binary: "without_rrdcached", logPrefix: "without_rrdcached", mode: "sync"},
-		{binary: "without_rrdcached", logPrefix: "without_rrdcached", mode: "parallel"},
+		// {binary: "http_with_rrdcached", logPrefix: "http_with_rrdcached", mode: "sync", protocol: "http"},
+		// {binary: "http_with_rrdcached", logPrefix: "http_with_rrdcached", mode: "parallel", protocol: "http"},
+		// {binary: "http_without_rrdcached", logPrefix: "http_without_rrdcached", mode: "sync", protocol: "http"},
+		// {binary: "http_without_rrdcached", logPrefix: "http_without_rrdcached", mode: "parallel", protocol: "http"},
+		{binary: "lsrp_with_rrdcached", logPrefix: "lsrp_with_rrdcached", mode: "sync", protocol: "lsrp"},
+		{binary: "lsrp_with_rrdcached", logPrefix: "lsrp_with_rrdcached", mode: "parallel", protocol: "lsrp"},
+		{binary: "lsrp_without_rrdcached", logPrefix: "lsrp_without_rrdcached", mode: "sync", protocol: "lsrp"},
+		{binary: "lsrp_without_rrdcached", logPrefix: "lsrp_without_rrdcached", mode: "parallel", protocol: "lsrp"},
 	}
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%s_%s", tt.logPrefix, tt.mode), func(t *testing.T) {
-			if err := tc.run(tt.binary, tt.logPrefix, tt.mode); err != nil {
+			if err := tc.run(tt.binary, tt.logPrefix, tt.mode, tt.protocol); err != nil {
 				t.Errorf("Test failed for %s in %s mode: %v", tt.binary, tt.mode, err)
+			}
+			tc.config.Server.TcpPort += 1
+			if err := tc.updateConfig(); err != nil {
+				t.Error(err)
 			}
 		})
 	}
 }
 
 type testCase struct {
-	port        int
-	requests    int
-	concurrency int
-	endpoint    string
-	rrdFile     string
-	outputDir   string
-	logDir      string
-	configFile  string
+	requests     int
+	concurrency  int
+	endpoint     string // LSRP endpoint (e.g., "endpoint=cpu&period=3600")
+	httpEndpoint string // HTTP endpoint (e.g., "cpu")
+	rrdFile      string
+	outputDir    string
+	logDir       string
+	configFile   string
+	config       config
 }
 
 type result struct {
@@ -134,33 +147,58 @@ func checkFile(path string, executable bool) error {
 	return nil
 }
 
+type config struct {
+	Server struct {
+		TcpPort       int    `json:"tcp_port"`
+		AllowedIPs    string `json:"allowed_ips"`
+		RRDCachedAddr string `json:"rrdcached_addr"`
+	} `json:"server"`
+	RRD struct {
+		BasePath              string `json:"base_path"`
+		CpuTotal              string `json:"cpu_total"`
+		CpuProcess            string `json:"cpu_process"`
+		RamTotal              string `json:"ram_total"`
+		RamProcess            string `json:"ram_process"`
+		Network               string `json:"network"`
+		Disk                  string `json:"disk"`
+		PostgresqlConnections string `json:"postgresql_connections"`
+	} `json:"rrd"`
+	JS struct {
+		ScriptPath string `json:"script_path"`
+	} `json:"js"`
+}
+
 func (tc *testCase) readConfigPort() error {
 	data, err := os.ReadFile(tc.configFile)
 	if err != nil {
 		return fmt.Errorf("failed to read %s: %v", tc.configFile, err)
 	}
-	var config struct {
-		Server struct {
-			TcpPort int `json:"tcp_port"`
-		} `json:"server"`
-	}
+	var config config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return fmt.Errorf("invalid JSON in %s: %v", tc.configFile, err)
 	}
-	tc.port = config.Server.TcpPort
+	tc.config = config
 	return nil
 }
 
+func (tc *testCase) updateConfig() error {
+	data, err := json.Marshal(tc.config)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(tc.configFile, data, 0644)
+}
+
 func (tc testCase) checkPort() error {
-	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.port))
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TcpPort))
 	if err := cmd.Run(); err == nil {
-		cmdKill := exec.Command("kill", "-TERM", "$(lsof -t -i :"+strconv.Itoa(tc.port)+")")
+		cmdKill := exec.Command("kill", "-TERM", "$(lsof -t -i :"+strconv.Itoa(tc.config.Server.TcpPort)+")")
 		if err := cmdKill.Run(); err != nil {
-			return fmt.Errorf("failed to free port %d: %v", tc.port, err)
+			return fmt.Errorf("failed to free port %d: %v", tc.config.Server.TcpPort, err)
 		}
 		time.Sleep(1 * time.Second)
 		if err := cmd.Run(); err == nil {
-			return fmt.Errorf("port %d still in use after attempting to free it", tc.port)
+			return fmt.Errorf("port %d still in use after attempting to free it", tc.config.Server.TcpPort)
 		}
 	}
 	return nil
@@ -186,33 +224,69 @@ func checkSvg(file string) bool {
 	return strings.Contains(string(data), "<svg")
 }
 
-func singleRequest(requestNum int, client *lsrp.Client, endpoint, outputDir string, errorLog *os.File, results chan<- result) {
-	outputFile := filepath.Join(outputDir, fmt.Sprintf("test_%d.svg", requestNum))
+func (tc testCase) sendRequest(requestNum int, client interface{}, endpoint string, errorLog *os.File, results chan<- result, protocol string) {
+	outputFile := filepath.Join(tc.outputDir, fmt.Sprintf("test_%d.svg", requestNum))
 
 	start := time.Now()
-	resp, err := client.Send(endpoint)
-	elapsed := time.Since(start).Milliseconds()
-	status := "FAIL"
+	var status byte
+	var data []byte
 
-	if err != nil {
-		logEntry := fmt.Sprintf("Request %d failed: error=%v\n", requestNum, err)
-		_, err := errorLog.WriteString(logEntry)
-		if err != nil {
-			fmt.Printf("Failed to write to error log: %v\n", err)
+	switch protocol {
+	case "http":
+		httpClient, ok := client.(*http.Client)
+		if !ok {
+			logEntry := fmt.Sprintf("Request %d failed: invalid HTTP client\n", requestNum)
+			errorLog.WriteString(logEntry)
+			results <- result{requestNum, time.Since(start).Milliseconds(), "FAIL"}
+			return
 		}
-		results <- result{requestNum, elapsed, status}
+		httpResp, err := httpClient.Send(endpoint)
+		if err == nil {
+			status = httpResp.Status
+			data = httpResp.Data
+		}
+	case "lsrp":
+		lsrpClient, ok := client.(*lsrp.Client)
+		if !ok {
+			logEntry := fmt.Sprintf("Request %d failed: invalid LSRP client\n", requestNum)
+			errorLog.WriteString(logEntry)
+			results <- result{requestNum, time.Since(start).Milliseconds(), "FAIL"}
+			return
+		}
+		lsrpResp, err := lsrpClient.Send(endpoint)
+		if err != nil {
+			logEntry := fmt.Sprintf("Request %d failed: %s\n", requestNum, err)
+			errorLog.WriteString(logEntry)
+			results <- result{requestNum, time.Since(start).Milliseconds(), "FAIL"}
+			return
+		}
+		status = lsrpResp.Status
+		data = lsrpResp.Data
+	default:
+		logEntry := fmt.Sprintf("Request %d failed: unknown protocol %s\n", requestNum, protocol)
+		errorLog.WriteString(logEntry)
+		results <- result{requestNum, time.Since(start).Milliseconds(), "FAIL"}
 		return
 	}
 
-	if resp.Status == 0 {
-		if err := os.WriteFile(outputFile, resp.Data, 0644); err != nil {
+	elapsed := time.Since(start).Milliseconds()
+	resultStatus := "FAIL"
+
+	const maxLogSize = 100
+	logEntry := fmt.Sprintf("Request %d data: %s\n", requestNum, data[:min(len(data), maxLogSize)])
+	if _, err := errorLog.WriteString(logEntry); err != nil {
+		fmt.Printf("Failed to write to error log: %v\n", err)
+	}
+
+	if status == 0 {
+		if err := os.WriteFile(outputFile, data, 0644); err != nil {
 			logEntry := fmt.Sprintf("Request %d failed to write output: output_file=%s, error=%v\n", requestNum, outputFile, err)
 			_, err := errorLog.WriteString(logEntry)
 			if err != nil {
 				fmt.Printf("Failed to write to error log: %v\n", err)
 			}
 		} else if checkSvg(outputFile) {
-			status = "SUCCESS"
+			resultStatus = "SUCCESS"
 		} else {
 			logEntry := fmt.Sprintf("Request %d failed: invalid SVG, output_file=%s\n", requestNum, outputFile)
 			_, err := errorLog.WriteString(logEntry)
@@ -221,14 +295,14 @@ func singleRequest(requestNum int, client *lsrp.Client, endpoint, outputDir stri
 			}
 		}
 	} else {
-		logEntry := fmt.Sprintf("Request %d failed: status=%d, data=%s\n", requestNum, resp.Status, string(resp.Data))
+		logEntry := fmt.Sprintf("Request %d failed: status=%d, data=%s\n", requestNum, status, string(data))
 		_, err := errorLog.WriteString(logEntry)
 		if err != nil {
 			fmt.Printf("Failed to write to error log: %v\n", err)
 		}
 	}
 
-	results <- result{requestNum, elapsed, status}
+	results <- result{requestNum, elapsed, resultStatus}
 }
 
 func analyzeResults(logPrefix string, results []result) {
@@ -289,7 +363,7 @@ func analyzeResults(logPrefix string, results []result) {
 	fmt.Println("==============================")
 }
 
-func (tc *testCase) run(binary, logPrefix, mode string) error {
+func (tc *testCase) run(binary, logPrefix, mode, protocol string) error {
 	logFile := filepath.Join(tc.logDir, fmt.Sprintf("%s_%s.log", logPrefix, mode))
 	results := make([]result, 0, tc.requests)
 
@@ -305,7 +379,7 @@ func (tc *testCase) run(binary, logPrefix, mode string) error {
 	}
 
 	// Start server
-	fmt.Printf("Starting %s server on port %d with binary ./bin/%s and config %s\n", logPrefix, tc.port, binary, tc.configFile)
+	fmt.Printf("Starting %s server on port %d with binary ./bin/%s and config %s\n", logPrefix, tc.config.Server.TcpPort, binary, tc.configFile)
 	serverCmd := exec.Command("./bin/"+binary, tc.configFile)
 	serverLog, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -326,17 +400,28 @@ func (tc *testCase) run(binary, logPrefix, mode string) error {
 	}
 
 	// Verify server is listening
-	cmd = exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.port))
+	cmd = exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TcpPort))
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Warning: %s server not listening on port %d, check %s\n", logPrefix, tc.port, logFile)
+		fmt.Printf("Warning: %s server not listening on port %d, check %s\n", logPrefix, tc.config.Server.TcpPort, logFile)
 	}
 
-	// Create LSRP client
-	client, err := lsrp.NewClient("localhost", tc.port)
-	if err != nil {
-		return fmt.Errorf("failed to create LSRP client for %s:%d: %v", "localhost", tc.port, err)
+	// Create client
+	var client interface{}
+	endpoint := tc.endpoint
+	if protocol == "http" {
+		client, err = http.NewClient("localhost", tc.config.Server.TcpPort)
+		if err != nil {
+			return fmt.Errorf("http.NewClient: %w", err)
+		}
+		endpoint = tc.httpEndpoint
+	} else {
+		lsrpClient, err := lsrp.NewClient("localhost", tc.config.Server.TcpPort)
+		if err != nil {
+			return fmt.Errorf("failed to create LSRP client for %s:%d: %v", "localhost", tc.config.Server.TcpPort, err)
+		}
+		client = lsrpClient
+		defer lsrpClient.Close()
 	}
-	defer client.Close()
 
 	// Open client error log
 	errorLog, err := os.OpenFile(filepath.Join(tc.logDir, "client_errors.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -345,12 +430,12 @@ func (tc *testCase) run(binary, logPrefix, mode string) error {
 	}
 	defer errorLog.Close()
 
-	fmt.Printf("Running %d requests in %s mode for %s on port %d...\n", tc.requests, mode, logPrefix, tc.port)
+	fmt.Printf("Running %d requests in %s mode for %s on port %d using %s protocol...\n", tc.requests, mode, logPrefix, tc.config.Server.TcpPort, protocol)
 
 	if mode == "sync" {
 		resultChan := make(chan result, tc.requests)
 		for i := 1; i <= tc.requests; i++ {
-			singleRequest(i, client, tc.endpoint, tc.outputDir, errorLog, resultChan)
+			tc.sendRequest(i, client, endpoint, errorLog, resultChan, protocol)
 		}
 		close(resultChan)
 		for res := range resultChan {
@@ -359,15 +444,12 @@ func (tc *testCase) run(binary, logPrefix, mode string) error {
 	} else {
 		resultChan := make(chan result, tc.requests)
 		var wg sync.WaitGroup
-		semaphore := make(chan struct{}, tc.concurrency)
 
 		for i := 1; i <= tc.requests; i++ {
 			wg.Add(1)
-			semaphore <- struct{}{}
 			go func(reqNum int) {
 				defer wg.Done()
-				defer func() { <-semaphore }()
-				singleRequest(reqNum, client, tc.endpoint, tc.outputDir, errorLog, resultChan)
+				tc.sendRequest(reqNum, client, endpoint, errorLog, resultChan, protocol)
 			}(i)
 		}
 		wg.Wait()
