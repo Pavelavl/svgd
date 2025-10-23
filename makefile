@@ -10,6 +10,8 @@ SERVER_SRC = src/*.c $(LSRP_DIR)/lsrp_server.c
 SERVER_BIN = svgd
 
 CLIENT_BIN = $(BIN_DIR)/lsrp
+PORT := $(shell jq -r '.server.tcp_port // "8080"' config.json)
+PERIOD = 3600
 
 SVG_FILES = \
 	$(EXAMPLES_DIR)/cpu.svg \
@@ -34,13 +36,13 @@ test:
 	cd tests && go test -v ./... 
 
 generate:
-	$(CLIENT_BIN) localhost:8080 "endpoint=cpu" > examples/cpu.svg && \
-	$(CLIENT_BIN) localhost:8080 "endpoint=cpu/process/postgres" > examples/cpu_process_postgres.svg && \
-	$(CLIENT_BIN) localhost:8080 "endpoint=ram" > examples/ram.svg && \
-	$(CLIENT_BIN) localhost:8080 "endpoint=ram/process/postgres" > examples/ram_process_postgres.svg && \
-	$(CLIENT_BIN) localhost:8080 "endpoint=network/eth0" > examples/network.svg && \
-	$(CLIENT_BIN) localhost:8080 "endpoint=disk/sdc" > examples/disk.svg && \
-	$(CLIENT_BIN) localhost:8080 "endpoint=postgresql/connections" > examples/pgsql.svg
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=cpu&period=$(PERIOD)" > examples/cpu.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=cpu/process/systemd&period=$(PERIOD)" > examples/cpu_process_systemd.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=ram&period=$(PERIOD)" > examples/ram.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=ram/process/postgres&period=$(PERIOD)" > examples/ram_process_postgres.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=network/eth0&period=$(PERIOD)" > examples/network.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=disk/sdc&period=$(PERIOD)" > examples/disk.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=postgresql/connections&period=$(PERIOD)" > examples/pgsql.svg
 
 clean:
 	rm -f $(SERVER_BIN) $(CLIENT_BIN) $(SVG_FILES)
