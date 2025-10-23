@@ -112,18 +112,31 @@ function generateSVG(series, options) {
     var timestamps = allData.map(function(d) { return d.timestamp; });
     var minTime = Math.min.apply(Math, timestamps);
     var maxTime = Math.max.apply(Math, timestamps);
-    if (maxTime - minTime > 3600) {
-        maxTime = minTime + 3600; // Enforce 1-hour range
-    }
+
     if (maxTime === minTime) {
-        maxTime = minTime + 3600;
+        maxTime = minTime + 1;
     }
     svg += '<g stroke-width="1">';
     for (var i = 0; i <= xSteps; i++) {
         var x = graphWidth * i / xSteps;
         var timestamp = minTime + (maxTime - minTime) * i / xSteps;
         var date = new Date(timestamp * 1000);
-        var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        
+        // Адаптивное форматирование в зависимости от диапазона
+        var timeRange = maxTime - minTime;
+        var timeStr;
+        if (timeRange > 86400 * 7) {
+            // Больше недели - показываем дату
+            timeStr = (date.getMonth() + 1) + '/' + date.getDate();
+        } else if (timeRange > 86400) {
+            // Больше дня - показываем день и время
+            timeStr = (date.getMonth() + 1) + '/' + date.getDate() + ' ' + 
+                      date.getHours() + ':' + ('0' + date.getMinutes()).slice(-2);
+        } else {
+            // Меньше дня - только время
+            timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+        
         svg += '<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + graphHeight + '" stroke="#eee"/>';
         svg += '<text x="' + x + '" y="' + (graphHeight + 20) + '" text-anchor="middle" font-size="10" fill="#666">' + timeStr + '</text>';
     }
@@ -134,18 +147,43 @@ function generateSVG(series, options) {
     series.forEach(function(s, index) {
         var validData = s.data.filter(function(d) { return !isNaN(d.value) && d.value >= 0; });
         if (validData.length === 0) return;
-
-        // Plot the line
-        var path = '';
-        validData.forEach(function(d, i) {
-            var x = graphWidth * (d.timestamp - minTime) / (maxTime - minTime);
-            var value = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
-            var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, value)) - minVal) / (maxVal - minVal));
-            path += (i === 0 ? 'M' : ' L') + x.toFixed(2) + ',' + y.toFixed(2);
+    
+        // Группировка данных в непрерывные сегменты
+        var segments = [];
+        var currentSegment = [];
+        for (var i = 0; i < validData.length; i++) {
+            currentSegment.push(validData[i]);
+            // Проверяем, является ли следующая точка не непрерывной (большой разрыв во времени)
+            if (i < validData.length - 1) {
+                var currentTime = validData[i].timestamp;
+                var nextTime = validData[i + 1].timestamp;
+                var timeDiff = nextTime - currentTime;
+                // Предполагаем, что разрыв больше 2 шагов времени (можно настроить)
+                var maxTimeGap = 2 * (maxTime - minTime) / validData.length;
+                if (timeDiff > maxTimeGap) {
+                    segments.push(currentSegment);
+                    currentSegment = [];
+                }
+            }
+        }
+        if (currentSegment.length > 0) {
+            segments.push(currentSegment);
+        }
+    
+        // Отрисовка каждого сегмента как отдельного пути
+        segments.forEach(function(segment) {
+            if (segment.length < 2) return; // Для линии нужно минимум 2 точки
+            var path = '';
+            segment.forEach(function(d, i) {
+                var x = graphWidth * (d.timestamp - minTime) / (maxTime - minTime);
+                var value = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
+                var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, value)) - minVal) / (maxVal - minVal));
+                path += (i === 0 ? 'M' : ' L') + x.toFixed(2) + ',' + y.toFixed(2);
+            });
+            svg += '<path d="' + path + '" stroke="' + colors[index % colors.length] + '" fill="none" stroke-width="2" stroke-linejoin="round"/>';
         });
-        svg += '<path d="' + path + '" stroke="' + colors[index % colors.length] + '" fill="none" stroke-width="2" stroke-linejoin="round"/>';
-
-        // Add data points with hover effects
+    
+        // Отрисовка точек для hover-эффекта
         validData.forEach(function(d, i) {
             var x = graphWidth * (d.timestamp - minTime) / (maxTime - minTime);
             var value = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
