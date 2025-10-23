@@ -24,6 +24,9 @@ SVG_FILES = \
 
 .PHONY: all build generate clean
 
+run-gw:
+	cd gate && make run
+
 run:
 	./bin/svgd ./config.json
 
@@ -31,6 +34,9 @@ all: build generate
 
 build:
 	$(CC) -o bin/$(SERVER_BIN) $(SERVER_SRC) -g $(CFLAGS) $(LIBS)
+
+build-gw:
+	cd gate && make build
 
 test:
 	cd tests && go test -v ./... 

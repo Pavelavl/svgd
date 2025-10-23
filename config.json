@@ -1,6 +1,6 @@
 {
 	"server": {
-		"tcp_port": 8395,
+		"tcp_port": 8081,
 		"allowed_ips": "127.0.0.1",
 		"rrdcached_addr": ""
 	},

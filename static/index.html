@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>svgd Metrics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            background-color: #f3f4f6;
+            font-family: 'Inter', sans-serif;
+        }
+        #graph-container {
+            transition: opacity 0.3s ease-in-out;
+        }
+        .fade-out {
+            opacity: 0.3;
+        }
+        .fade-in {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4">
+    <div class="w-full max-w-4xl bg-white rounded-lg shadow-lg p-6">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6">Metrics Dashboard</h1>
+        <div class="flex flex-col sm:flex-row gap-4 mb-6">
+            <div class="flex-1">
+                <label for="metric" class="block text-sm font-medium text-gray-700">Metric</label>
+                <select id="metric" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    <option value="cpu">CPU Total</option>
+                    <option value="cpu/process/systemd">CPU Process (systemd)</option>
+                    <option value="ram">RAM Total</option>
+                    <option value="ram/process/systemd">RAM Process (systemd)</option>
+                    <option value="network/eth0">Network (eth0)</option>
+                    <option value="disk/sdc">Disk (sdc)</option>
+                    <option value="postgresql/connections">PostgreSQL Connections</option>
+                </select>
+            </div>
+            <div class="flex-1">
+                <label for="period" class="block text-sm font-medium text-gray-700">Time Period</label>
+                <select id="period" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    <option value="3600">Last 1 Hour</option>
+                    <option value="7200">Last 2 Hours</option>
+                    <option value="86400">Last 24 Hours</option>
+                    <option value="604800">Last 7 Days</option>
+                </select>
+            </div>
+        </div>
+        <div id="graph-container" class="fade-in w-full h-[400px] flex items-center justify-center bg-gray-100 rounded-md">
+            <div id="graph" class="w-full h-full"></div>
+        </div>
+        <p id="error" class="text-red-500 text-sm mt-2 hidden"></p>
+    </div>
+
+    <script>
+        const metricSelect = document.getElementById('metric');
+        const periodSelect = document.getElementById('period');
+        const graphContainer = document.getElementById('graph-container');
+        const graph = document.getElementById('graph');
+        const error = document.getElementById('error');
+
+        // Define tooltip functions
+        function showTooltip(evt, series, value, time, x, y) {
+            const tooltip = document.getElementById('tooltip');
+            const seriesText = document.getElementById('tooltip-series');
+            const valueText = document.getElementById('tooltip-value');
+            seriesText.textContent = `Series: ${series}`;
+            valueText.textContent = `${value} at ${time}`;
+            tooltip.setAttribute('transform', `translate(${x + 10},${y - 50})`);
+            tooltip.setAttribute('visibility', 'visible');
+            evt.target.setAttribute('r', '7');
+            evt.target.setAttribute('opacity', '1');
+        }
+
+        function hideTooltip() {
+            const tooltip = document.getElementById('tooltip');
+            const circles = document.getElementsByTagName('circle');
+            tooltip.setAttribute('visibility', 'hidden');
+            for (let i = 0; i < circles.length; i++) {
+                circles[i].setAttribute('r', '5');
+                circles[i].setAttribute('opacity', '0');
+            }
+        }
+
+        // Attach event listeners to SVG circles after rendering
+        function attachTooltipEvents() {
+            const circles = graph.getElementsByTagName('circle');
+            for (let circle of circles) {
+                const pointId = circle.getAttribute('id');
+                if (pointId && pointId.startsWith('point-')) {
+                    // Extract parameters from onmouseover attribute
+                    const onmouseover = circle.getAttribute('onmouseover');
+                    if (onmouseover) {
+                        const match = onmouseover.match(/showTooltip\(evt,\s*'([^']+)',\s*'([^']+)',\s*'([^']+)',\s*([\d.]+),\s*([\d.]+)\)/);
+                        if (match) {
+                            const [, series, value, time, x, y] = match;
+                            circle.addEventListener('mouseover', (evt) => showTooltip(evt, series, value, time, parseFloat(x), parseFloat(y)));
+                            circle.addEventListener('mouseout', hideTooltip);
+                            // Remove inline onmouseover/onmouseout to avoid conflicts
+                            circle.removeAttribute('onmouseover');
+                            circle.removeAttribute('onmouseout');
+                        }
+                    }
+                }
+            }
+        }
+
+        async function fetchGraph() {
+            const metric = metricSelect.value;
+            const period = periodSelect.value;
+            const url = `http://localhost:8080/${metric}?period=${period}`;
+
+            // Fade out during update
+            graphContainer.classList.remove('fade-in');
+            graphContainer.classList.add('fade-out');
+            error.classList.add('hidden');
+
+            try {
+                const response = await fetch(url);
+                if (response.ok && response.headers.get('content-type').includes('image/svg+xml')) {
+                    const svg = await response.text();
+                    graph.innerHTML = svg;
+                    attachTooltipEvents(); // Attach event listeners after inserting SVG
+                } else {
+                    const data = await response.json();
+                    error.textContent = data.error || 'Failed to fetch graph';
+                    error.classList.remove('hidden');
+                    graph.innerHTML = '';
+                }
+            } catch (err) {
+                error.textContent = 'Network error: Unable to connect to server';
+                error.classList.remove('hidden');
+                graph.innerHTML = '';
+            }
+
+            // Fade in after update
+            graphContainer.classList.remove('fade-out');
+            graphContainer.classList.add('fade-in');
+        }
+
+        // Initial fetch
+        fetchGraph();
+
+        // Auto-update every 10 seconds
+        setInterval(fetchGraph, 10000);
+
+        // Update on select change
+        metricSelect.addEventListener('change', fetchGraph);
+        periodSelect.addEventListener('change', fetchGraph);
+    </script>
+</body>
+</html>
