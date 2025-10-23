@@ -1,15 +1,11 @@
 #ifndef RRD_READER_H
 #define RRD_READER_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <time.h>
-#include <unistd.h>
 #include <rrd.h>
 #include <duktape.h>
 #include <errno.h>
-#include <sys/stat.h>
+#include <pthread.h>
+#include <rrd_client.h>
 
 #define MAX_POINTS 1000
 

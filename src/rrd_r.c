@@ -1,12 +1,4 @@
 #include "../include/rrd_r.h"
-#include <math.h>
-#include <string.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <errno.h>
-#include <time.h>
-#include <unistd.h>
-#include <rrd_client.h>
 
 // Static cache for JavaScript file contents
 static char *js_cache = NULL;
@@ -93,11 +85,12 @@ void free_js_cache(void) {
 }
 
 // Internal function for selecting optimal step
-static unsigned long select_optimal_step_internal(const char *filename, time_t start, time_t end) {
+static unsigned long select_optimal_step(const char *filename, time_t start, time_t end, int period) {
     rrd_info_t *info = rrd_info_r(filename);
-    if (!info) return 70;
+    const int default_step = 15;
+    if (!info) return default_step;
 
-    unsigned long base_step = 10;
+    unsigned long base_step = default_step;
     for (rrd_info_t *ptr = info; ptr; ptr = ptr->next) {
         if (strcmp(ptr->key, "step") == 0) {
             base_step = ptr->value.u_cnt;
@@ -149,19 +142,19 @@ static unsigned long select_optimal_step_internal(const char *filename, time_t s
             }
         }
     }
-    if (first_timestamp == -1) first_timestamp = end - 3600;
+    if (first_timestamp == -1) first_timestamp = end - period;
     if (start < first_timestamp) start = first_timestamp;
 
     time_t range = end - start;
     if (range <= 0) {
         for (int i = 0; i < rra_count; i++) free(rras[i].cf);
         rrd_info_free(info);
-        return 70;
+        return default_step;
     }
 
     const int min_points = 100;
-    const int max_points = 1000;
-    const unsigned long min_step = 70;
+    const int max_points = 2400;
+    const unsigned long min_step = default_step;
 
     unsigned long optimal_step = 0;
     int best_num_points = 0;
@@ -187,7 +180,7 @@ static unsigned long select_optimal_step_internal(const char *filename, time_t s
         }
     }
 
-    if (optimal_step == 0 && range <= 3600) {
+    if (optimal_step == 0 && range <= period) {
         for (int i = 0; i < rra_count; i++) {
             if (strcmp(rras[i].cf, "AVERAGE") == 0 && rras[i].pdp_per_row == 1) {
                 optimal_step = rras[i].effective_step;
@@ -202,11 +195,6 @@ static unsigned long select_optimal_step_internal(const char *filename, time_t s
     for (int i = 0; i < rra_count; i++) free(rras[i].cf);
     rrd_info_free(info);
     return optimal_step;
-}
-
-// Public wrapper for backward compatibility
-unsigned long select_optimal_step(const char *filename, time_t start, time_t end) {
-    return select_optimal_step_internal(filename, start, end);
 }
 
 MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *metric_type, char *param1) {
@@ -225,7 +213,7 @@ MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, 
     }
 
     time_t end = time(NULL);
-    unsigned long step = select_optimal_step_internal(filename, start, end);
+    unsigned long step = select_optimal_step(filename, start, end, end+start);
     unsigned long ds_cnt;
     char **ds_names = NULL;
     rrd_value_t *data = NULL;
