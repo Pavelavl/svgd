@@ -97,11 +97,11 @@ Config load_config(duk_context *ctx, const char *filename) {
             fprintf(stderr, "Warning: server.tcp_port is not a number in config.json\n");
         }
         duk_pop(ctx);
-
-        set_string_field(ctx, &config, "server", "allowed_ips", config.allowed_ips, sizeof(config.allowed_ips));
     }
     duk_pop(ctx);
 
+    set_string_field(ctx, &config, "server", "allowed_ips", config.allowed_ips, sizeof(config.allowed_ips));
+    set_string_field(ctx, &config, "server", "rrdcached_addr", config.rrdcached_addr, sizeof(config.rrdcached_addr));
     set_string_field(ctx, &config, "rrd", "base_path", config.rrd_base_path, sizeof(config.rrd_base_path));
     set_string_field(ctx, &config, "rrd", "cpu_total", config.path_cpu_total, sizeof(config.path_cpu_total));
     set_string_field(ctx, &config, "rrd", "cpu_process", config.path_cpu_process, sizeof(config.path_cpu_process));

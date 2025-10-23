@@ -118,7 +118,7 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
     }
 
     fprintf(stderr, "Fetching data for RRD: %s, metric: %s\n", rrd_path, metric_type);
-    MetricData *data = fetch_metric_data(rrd_path, now - period, metric_type, param1);
+    MetricData *data = fetch_metric_data(global_config.rrdcached_addr, rrd_path, now - period, metric_type, param1);
     if (data) {
         fprintf(stderr, "Data fetched: %d series\n", data->series_count);
         char *svg = generate_svg(global_ctx, global_config.js_script_path, data);
@@ -152,8 +152,6 @@ int main(int argc, char *argv[]) {
 
     const char *config_file = (argc > 1) ? argv[1] : "config.json";
     global_config = load_config(global_ctx, config_file);
-
-    printf("Server started on port %d\n", global_config.tcp_port);
 
     int ret = lsrp_server_start(global_config.tcp_port, handler);
     if (ret < 0) {

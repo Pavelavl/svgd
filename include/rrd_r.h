@@ -27,7 +27,7 @@ typedef struct {
     char *param1;
 } MetricData;
 
-MetricData* fetch_metric_data(const char *filename, time_t start, char *metric_type, char *param1);
+MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *metric_type, char *param1);
 char* generate_svg(duk_context *ctx, const char *script_path, MetricData *data);
 void free_metric_data(MetricData *data);
 int load_js_file(duk_context *ctx, const char *filename);

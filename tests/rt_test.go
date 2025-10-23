@@ -22,7 +22,7 @@ var tc testCase
 
 func TestMain(m *testing.M) {
 	// Initialize test configuration
-	tc.requests = 100
+	tc.requests = 1000
 	tc.concurrency = 5
 	tc.endpoint = "endpoint=cpu&period=3600" // LSRP format
 	tc.httpEndpoint = "cpu"                  // HTTP format
@@ -82,27 +82,35 @@ func Test_HttpVersusLsrp(t *testing.T) {
 	tests := []struct {
 		binary    string
 		logPrefix string
+		rrdcached bool
 		mode      string
 		protocol  string // "http" or "lsrp"
 	}{
-		// {binary: "http_with_rrdcached", logPrefix: "http_with_rrdcached", mode: "sync", protocol: "http"},
-		// {binary: "http_with_rrdcached", logPrefix: "http_with_rrdcached", mode: "parallel", protocol: "http"},
-		// {binary: "http_without_rrdcached", logPrefix: "http_without_rrdcached", mode: "sync", protocol: "http"},
-		// {binary: "http_without_rrdcached", logPrefix: "http_without_rrdcached", mode: "parallel", protocol: "http"},
-		{binary: "lsrp_with_rrdcached", logPrefix: "lsrp_with_rrdcached", mode: "sync", protocol: "lsrp"},
-		{binary: "lsrp_with_rrdcached", logPrefix: "lsrp_with_rrdcached", mode: "parallel", protocol: "lsrp"},
-		{binary: "lsrp_without_rrdcached", logPrefix: "lsrp_without_rrdcached", mode: "sync", protocol: "lsrp"},
-		{binary: "lsrp_without_rrdcached", logPrefix: "lsrp_without_rrdcached", mode: "parallel", protocol: "lsrp"},
+		{binary: "http", rrdcached: true, logPrefix: "http_with_rrdcached", mode: "sync", protocol: "http"},
+		{binary: "http", rrdcached: true, logPrefix: "http_with_rrdcached", mode: "parallel", protocol: "http"},
+		{binary: "http", rrdcached: false, logPrefix: "http_without_rrdcached", mode: "sync", protocol: "http"},
+		{binary: "http", rrdcached: false, logPrefix: "http_without_rrdcached", mode: "parallel", protocol: "http"},
+		{binary: "lsrp", rrdcached: true, logPrefix: "lsrp_with_rrdcached", mode: "sync", protocol: "lsrp"},
+		{binary: "lsrp", rrdcached: true, logPrefix: "lsrp_with_rrdcached", mode: "parallel", protocol: "lsrp"},
+		{binary: "lsrp", rrdcached: false, logPrefix: "lsrp_without_rrdcached", mode: "sync", protocol: "lsrp"},
+		{binary: "lsrp", rrdcached: false, logPrefix: "lsrp_without_rrdcached", mode: "parallel", protocol: "lsrp"},
 	}
 
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%s_%s", tt.logPrefix, tt.mode), func(t *testing.T) {
-			if err := tc.run(tt.binary, tt.logPrefix, tt.mode, tt.protocol); err != nil {
-				t.Errorf("Test failed for %s in %s mode: %v", tt.binary, tt.mode, err)
-			}
 			tc.config.Server.TcpPort += 1
+			if !tt.rrdcached {
+				tc.config.Server.RRDCachedAddr = ""
+			} else {
+				tc.config.Server.RRDCachedAddr = "unix:/var/run/rrdcached.sock"
+			}
+
 			if err := tc.updateConfig(); err != nil {
 				t.Error(err)
+			}
+
+			if err := tc.run(tt.binary, tt.logPrefix, tt.mode, tt.protocol); err != nil {
+				t.Errorf("Test failed for %s in %s mode: %v", tt.binary, tt.mode, err)
 			}
 		})
 	}
@@ -182,7 +190,7 @@ func (tc *testCase) readConfigPort() error {
 }
 
 func (tc *testCase) updateConfig() error {
-	data, err := json.Marshal(tc.config)
+	data, err := json.MarshalIndent(tc.config, "", "\t")
 	if err != nil {
 		return err
 	}
