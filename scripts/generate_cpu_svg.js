@@ -10,8 +10,8 @@ function generateSVG(series, options) {
     var graphWidth = width - margin.left - margin.right;
     var graphHeight = height - margin.top - margin.bottom;
 
-    var svg = '<svg width="' + width + '" height="' + height + '" xmlns="http://www.w3.org/2000/svg" style="font-family: Arial, sans-serif;">';
-    svg += '<rect width="' + width + '" height="' + height + '" fill="#ffffff"/>';
+    var svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg" style="font-family: Arial, sans-serif; width: 100%; height: 100%;" preserveAspectRatio="xMidYMid meet">';
+    svg += '<rect width="100%" height="100%" fill="#ffffff"/>';
 
     if (!series || !Array.isArray(series) || series.length === 0) {
         svg += '<text x="' + (width / 2) + '" y="' + (height / 2) + '" text-anchor="middle" fill="red">Error: No data series</text>';
