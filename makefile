@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Ilsrp
+CFLAGS = -Ilsrp -Wall -Wextra -O2 -pthread
 LIBS = -lrrd -lduktape
 
 LSRP_DIR = lsrp
@@ -37,6 +37,11 @@ build:
 
 build-gw:
 	cd gate && make build
+
+build-tests: metrics_collector
+
+metrics_collector: ./tests/metrics_collector.c
+	$(CC) $(CFLAGS) -o ./tests/bin/metrics_collector ./tests/metrics_collector.c
 
 test:
 	cd tests && go test -v ./... 
