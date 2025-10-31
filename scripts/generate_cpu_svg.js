@@ -48,6 +48,13 @@ function generateSVG(series, options) {
             title = 'CPU Utilization';
             yLabel = 'Usage (%)';
             isPercentage = true;
+            allData = allData.map(function(d) { 
+                return { 
+                    timestamp: d.timestamp, 
+                    value: d.value * 100,
+                    seriesName: d.seriesName 
+                }; 
+            });
             break;
         case 'cpu_process':
             title = 'CPU Utilization for ' + param1;
