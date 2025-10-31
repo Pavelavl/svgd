@@ -1,6 +1,6 @@
 {
 	"server": {
-		"tcp_port": 8176,
+		"tcp_port": 8378,
 		"allowed_ips": "127.0.0.1",
 		"rrdcached_addr": "unix:/var/run/rrdcached.sock"
 	},

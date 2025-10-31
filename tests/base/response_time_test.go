@@ -110,7 +110,7 @@ func Test_HTTPVsLSRP(t *testing.T) {
 				t.Error(err)
 			}
 
-			if err := tc.run(tt.binary, tt.logPrefix, tt.mode, tt.protocol); err != nil {
+			if err := tc.run(t, tt.binary, tt.logPrefix, tt.mode, tt.protocol); err != nil {
 				t.Errorf("Test failed for %s in %s mode: %v", tt.binary, tt.mode, err)
 			}
 		})
@@ -233,7 +233,7 @@ func checkSvg(file string) bool {
 	return strings.Contains(string(data), "<svg")
 }
 
-func (tc testCase) sendRequest(requestNum int, client interface{}, endpoint string, errorLog *os.File, results chan<- result, protocol string) {
+func (tc testCase) sendRequest(t *testing.T, requestNum int, client interface{}, endpoint string, errorLog *os.File, results chan<- result, protocol string) {
 	outputFile := filepath.Join(tc.outputDir, fmt.Sprintf("test_%d.svg", requestNum))
 
 	start := time.Now()
@@ -259,7 +259,7 @@ func (tc testCase) sendRequest(requestNum int, client interface{}, endpoint stri
 		if !ok {
 			logEntry := fmt.Sprintf("Request %d failed: invalid LSRP client\n", requestNum)
 			if _, err := errorLog.WriteString(logEntry); err != nil {
-				fmt.Printf("Failed to write to error log: %v\n", err)
+				t.Logf("Failed to write to error log: %v\n", err)
 			}
 			results <- result{requestNum, time.Since(start).Milliseconds(), "FAIL"}
 			return
@@ -268,7 +268,7 @@ func (tc testCase) sendRequest(requestNum int, client interface{}, endpoint stri
 		if err != nil {
 			logEntry := fmt.Sprintf("Request %d failed: %s\n", requestNum, err)
 			if _, err := errorLog.WriteString(logEntry); err != nil {
-				fmt.Printf("Failed to write to error log: %v\n", err)
+				t.Logf("Failed to write to error log: %v\n", err)
 			}
 			results <- result{requestNum, time.Since(start).Milliseconds(), "FAIL"}
 			return
@@ -288,7 +288,7 @@ func (tc testCase) sendRequest(requestNum int, client interface{}, endpoint stri
 	const maxLogSize = 100
 	logEntry := fmt.Sprintf("Request %d data: %s\n", requestNum, data[:min(len(data), maxLogSize)])
 	if _, err := errorLog.WriteString(logEntry); err != nil {
-		fmt.Printf("Failed to write to error log: %v\n", err)
+		t.Logf("Failed to write to error log: %v\n", err)
 	}
 
 	if status == 0 {
@@ -296,7 +296,7 @@ func (tc testCase) sendRequest(requestNum int, client interface{}, endpoint stri
 			logEntry := fmt.Sprintf("Request %d failed to write output: output_file=%s, error=%v\n", requestNum, outputFile, err)
 			_, err := errorLog.WriteString(logEntry)
 			if err != nil {
-				fmt.Printf("Failed to write to error log: %v\n", err)
+				t.Logf("Failed to write to error log: %v\n", err)
 			}
 		} else if checkSvg(outputFile) {
 			resultStatus = "SUCCESS"
@@ -304,14 +304,14 @@ func (tc testCase) sendRequest(requestNum int, client interface{}, endpoint stri
 			logEntry := fmt.Sprintf("Request %d failed: invalid SVG, output_file=%s\n", requestNum, outputFile)
 			_, err := errorLog.WriteString(logEntry)
 			if err != nil {
-				fmt.Printf("Failed to write to error log: %v\n", err)
+				t.Logf("Failed to write to error log: %v\n", err)
 			}
 		}
 	} else {
 		logEntry := fmt.Sprintf("Request %d failed: status=%d, data=%s\n", requestNum, status, string(data))
 		_, err := errorLog.WriteString(logEntry)
 		if err != nil {
-			fmt.Printf("Failed to write to error log: %v\n", err)
+			t.Logf("Failed to write to error log: %v\n", err)
 		}
 	}
 
@@ -376,7 +376,7 @@ func analyzeResults(logPrefix string, results []result) {
 	fmt.Println("==============================")
 }
 
-func (tc *testCase) run(binary, logPrefix, mode, protocol string) error {
+func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) error {
 	logFile := filepath.Join(tc.logDir, fmt.Sprintf("%s_%s.log", logPrefix, mode))
 	results := make([]result, 0, tc.requests)
 
@@ -392,7 +392,7 @@ func (tc *testCase) run(binary, logPrefix, mode, protocol string) error {
 	}
 
 	// Start server
-	fmt.Printf("Starting %s server on port %d with binary ../bin/%s and config %s\n", logPrefix, tc.config.Server.TcpPort, binary, tc.configFile)
+	t.Logf("Starting %s server on port %d with binary ../bin/%s and config %s\n", logPrefix, tc.config.Server.TcpPort, binary, tc.configFile)
 	serverCmd := exec.Command("../bin/"+binary, tc.configFile)
 	serverLog, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -404,9 +404,9 @@ func (tc *testCase) run(binary, logPrefix, mode, protocol string) error {
 	if err := serverCmd.Start(); err != nil {
 		return fmt.Errorf("failed to start %s server: %v", logPrefix, err)
 	}
-	fmt.Printf("Server started with PID %d\n", serverCmd.Process.Pid)
+	t.Logf("Server started with PID %d\n", serverCmd.Process.Pid)
 	defer func() {
-		fmt.Printf("Shutting down server on port %d\n", tc.config.Server.TcpPort)
+		t.Logf("Shutting down server on port %d\n", tc.config.Server.TcpPort)
 		serverCmd.Process.Signal(os.Interrupt)
 		serverCmd.Wait()
 	}()
@@ -420,7 +420,7 @@ func (tc *testCase) run(binary, logPrefix, mode, protocol string) error {
 	// Verify server is listening
 	cmd = exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TcpPort))
 	if err := cmd.Run(); err != nil {
-		fmt.Printf("Warning: %s server not listening on port %d, check %s\n", logPrefix, tc.config.Server.TcpPort, logFile)
+		t.Logf("Warning: %s server not listening on port %d, check %s\n", logPrefix, tc.config.Server.TcpPort, logFile)
 	}
 
 	// Create client
@@ -438,9 +438,7 @@ func (tc *testCase) run(binary, logPrefix, mode, protocol string) error {
 			return fmt.Errorf("failed to create LSRP client for %s:%d: %v", "localhost", tc.config.Server.TcpPort, err)
 		}
 		client = lsrpClient
-		if mode != "sync" {
-			defer lsrpClient.Close() // Close only in parallel mode
-		}
+		defer lsrpClient.Close() // Close only in parallel mode
 	}
 
 	// Open client error log
@@ -450,17 +448,25 @@ func (tc *testCase) run(binary, logPrefix, mode, protocol string) error {
 	}
 	defer errorLog.Close()
 
-	fmt.Printf("Running %d requests in %s mode for %s on port %d using %s protocol...\n", tc.requests, mode, logPrefix, tc.config.Server.TcpPort, protocol)
+	t.Logf("Running %d requests in %s mode for %s on port %d using %s protocol...\n", tc.requests, mode, logPrefix, tc.config.Server.TcpPort, protocol)
 
 	if mode == "sync" {
 		resultChan := make(chan result, tc.requests)
+		done := make(chan struct{})
+
+		go func() {
+			for res := range resultChan {
+				results = append(results, res)
+			}
+			close(done) // ← сигнал, что закончили
+		}()
+
 		for i := 1; i <= tc.requests; i++ {
-			tc.sendRequest(i, client, endpoint, errorLog, resultChan, protocol)
+			tc.sendRequest(t, i, client, endpoint, errorLog, resultChan, protocol)
 		}
+
 		close(resultChan)
-		for res := range resultChan {
-			results = append(results, res)
-		}
+		<-done
 	} else {
 		resultChan := make(chan result, tc.requests)
 		var wg sync.WaitGroup
@@ -469,7 +475,7 @@ func (tc *testCase) run(binary, logPrefix, mode, protocol string) error {
 			wg.Add(1)
 			go func(reqNum int) {
 				defer wg.Done()
-				tc.sendRequest(reqNum, client, endpoint, errorLog, resultChan, protocol)
+				tc.sendRequest(t, reqNum, client, endpoint, errorLog, resultChan, protocol)
 			}(i)
 		}
 		wg.Wait()
