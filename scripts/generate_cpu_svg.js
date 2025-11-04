@@ -10,34 +10,38 @@ function generateSVG(series, options) {
     var graphWidth = width - margin.left - margin.right;
     var graphHeight = height - margin.top - margin.bottom;
 
-    // Dark theme colors (Grafana-style)
+    // Light theme colors (default)
     var colors = {
-        background: '#1f2023',
-        gridLines: '#2d2e32',
-        text: '#9fa6b2',
-        textPrimary: '#ffffff',
-        axis: '#4a5568',
+        background: '#ffffff',
+        gridLines: '#e2e8f0',
+        text: '#4a5568',
+        textPrimary: '#1a202c',
+        axis: '#64748b',
         series: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
     };
 
-    var svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; width: 100%; height: 100%;" preserveAspectRatio="xMidYMid meet">';
-    
-    // Background
-    svg += '<rect width="100%" height="100%" fill="' + colors.background + '"/>';
+    // Use array for building SVG - MUCH faster than string concatenation
+    var svg = [];
+    svg.push('<svg viewBox="0 0 ', width, ' ', height, '" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; width: 100%; height: 100%;" preserveAspectRatio="xMidYMid meet">');
+    svg.push('<rect width="100%" height="100%" fill="', colors.background, '"/>');
 
     if (!series || !Array.isArray(series) || series.length === 0) {
-        svg += '<text x="' + (width / 2) + '" y="' + (height / 2) + '" text-anchor="middle" fill="#ef4444" font-size="14">Error: No data series</text></svg>';
-        return svg;
+        svg.push('<text x="', width / 2, '" y="', height / 2, '" text-anchor="middle" fill="#ef4444" font-size="14">Error: No data series</text></svg>');
+        return svg.join('');
     }
 
     var metricType = options.metricType || 'unknown';
     var param1 = options.param1 || '';
     
-    // Collect all data points
+    // Collect all data points in single pass
     var allData = [];
-    series.forEach(function(s) {
-        if (!s.data || !Array.isArray(s.data)) return;
-        s.data.forEach(function(d) {
+    var seriesCount = series.length;
+    for (var si = 0; si < seriesCount; si++) {
+        var s = series[si];
+        if (!s.data || !Array.isArray(s.data)) continue;
+        var dataLen = s.data.length;
+        for (var di = 0; di < dataLen; di++) {
+            var d = s.data[di];
             if (!isNaN(d.value) && d.value >= 0) {
                 allData.push({ 
                     timestamp: d.timestamp, 
@@ -45,278 +49,322 @@ function generateSVG(series, options) {
                     seriesName: s.name 
                 });
             }
-        });
-    });
-
-    if (allData.length === 0) {
-        svg += '<text x="' + (width / 2) + '" y="' + (height / 2) + '" text-anchor="middle" fill="#ef4444" font-size="14">Error: No valid data points</text></svg>';
-        return svg;
+        }
     }
 
+    if (allData.length === 0) {
+        svg.push('<text x="', width / 2, '" y="', height / 2, '" text-anchor="middle" fill="#ef4444" font-size="14">Error: No valid data points</text></svg>');
+        return svg.join('');
+    }
+
+    // Pre-calculate metric configuration
     var title = '';
     var yLabel = '';
     var isPercentage = false;
-    var valueFormatter = function(value) { return value.toFixed(2); };
-    var minVal, maxVal;
+    var valueMultiplier = 1;
+    var valueFormatter;
+    var needsTransform = false;
+    var transformDivisor = 1;
 
     switch (metricType) {
         case 'cpu_total':
             title = 'CPU Utilization';
             yLabel = 'Usage (%)';
             isPercentage = true;
-            allData = allData.map(function(d) { 
-                return { timestamp: d.timestamp, value: d.value * 100, seriesName: d.seriesName }; 
-            });
-            valueFormatter = function(value) { return value.toFixed(1); };
+            valueMultiplier = 100;
+            needsTransform = true;
+            valueFormatter = function(v) { return v.toFixed(1); };
             break;
         case 'cpu_process':
             title = 'CPU Time for ' + param1;
             yLabel = 'CPU Time (seconds)';
-            valueFormatter = function(value) { return value.toFixed(2); };
+            valueFormatter = function(v) { return v.toFixed(2); };
             break;
         case 'ram_total':
             title = 'RAM Utilization';
             yLabel = 'Usage (%)';
             isPercentage = true;
-            valueFormatter = function(value) { return value.toFixed(1); };
+            valueFormatter = function(v) { return v.toFixed(1); };
             break;
         case 'ram_process':
             title = 'Memory Usage for ' + param1;
             yLabel = 'Memory (MB)';
-            allData = allData.map(function(d) { 
-                return { timestamp: d.timestamp, value: d.value / 1024 / 1024, seriesName: d.seriesName }; 
-            });
-            valueFormatter = function(value) { return value.toFixed(1); };
+            transformDivisor = 1024*1024;
+            needsTransform = true;
+            valueFormatter = function(v) { return v.toFixed(1); };
             break;
         case 'network':
             title = 'Network Traffic for ' + param1;
-            if (value >= 1024*1024*1024) {
-                yLabel = 'Traffic (GB/s)';
-            } else if (value >= 1024*1024) {
-                yLabel = 'Traffic (MB/s)';
-            } else if (value >= 1024) {
-                yLabel = 'Traffic (KB/s)';
-            } else {
-                yLabel = 'Traffic (B/s)';
-            }
+            yLabel = 'Traffic (B/s)';
+
             valueFormatter = function (value) {
-                if (value >= 1024*1024*1024) return (value / 1024*1024*1024).toFixed(2);
-                if (value >= 1024*1024) return (value / 1024*1024).toFixed(2);
-                if (value >= 1024) return (value / 1024).toFixed(2);
                 return value.toFixed(2);
             };
             break;
         case 'disk':
             title = 'Disk Operations for ' + param1;
             yLabel = 'Operations/s';
-            valueFormatter = function(value) { return value.toFixed(1); };
+            valueFormatter = function(v) { return v.toFixed(1); };
             break;
         case 'postgresql_connections':
             title = 'PostgreSQL Connections';
             yLabel = 'Connections';
-            valueFormatter = function(value) { return Math.round(value).toString(); };
+            valueFormatter = function(v) { return Math.round(v).toString(); };
             break;
         default:
             title = 'Metric';
             yLabel = 'Value';
+            valueFormatter = function(v) { return v.toFixed(2); };
     }
 
-    // Calculate value range
+    // Transform data if needed (single pass)
+    if (needsTransform) {
+        var allDataLen = allData.length;
+        if (metricType === 'cpu_total') {
+            for (var i = 0; i < allDataLen; i++) {
+                allData[i].value *= valueMultiplier;
+            }
+        } else if (metricType === 'ram_process') {
+            for (var i = 0; i < allDataLen; i++) {
+                allData[i].value /= transformDivisor;
+            }
+        }
+    }
+
+    // Calculate value range and time range in single pass
+    var minVal, maxVal, minTime, maxTime;
     if (isPercentage) {
         minVal = 0;
         maxVal = 100;
     } else {
-        var values = allData.map(function(d) { return d.value; });
-        minVal = Math.min.apply(Math, values);
-        maxVal = Math.max.apply(Math, values);
-        
-        // Add padding
+        minVal = Infinity;
+        maxVal = -Infinity;
+    }
+    minTime = Infinity;
+    maxTime = -Infinity;
+
+    var allDataLen = allData.length;
+    for (var i = 0; i < allDataLen; i++) {
+        var d = allData[i];
+        if (!isPercentage) {
+            if (d.value < minVal) minVal = d.value;
+            if (d.value > maxVal) maxVal = d.value;
+        }
+        if (d.timestamp < minTime) minTime = d.timestamp;
+        if (d.timestamp > maxTime) maxTime = d.timestamp;
+    }
+
+    // Add padding for non-percentage
+    if (!isPercentage) {
         var padding = (maxVal - minVal) * 0.1;
         if (padding === 0) padding = Math.abs(maxVal) * 0.1 || 1;
         minVal = Math.max(0, minVal - padding);
         maxVal = maxVal + padding;
     }
 
+    var timeRange = maxTime - minTime;
+    if (timeRange === 0) timeRange = 1;
+    var valueRange = maxVal - minVal;
+
     // Main graph group
-    svg += '<g transform="translate(' + margin.left + ',' + margin.top + ')">';
+    svg.push('<g transform="translate(', margin.left, ',', margin.top, ')">');
     
     // Background panel
-    svg += '<rect width="' + graphWidth + '" height="' + graphHeight + '" fill="' + colors.background + '" stroke="' + colors.gridLines + '" stroke-width="1"/>';
+    svg.push('<rect width="', graphWidth, '" height="', graphHeight, '" fill="', colors.background, '" stroke="', colors.gridLines, '" stroke-width="1"/>');
 
-    // Grid lines
+    // Grid lines and labels
     var ySteps = 5;
     for (var i = 0; i <= ySteps; i++) {
-        var y = graphHeight * (1 - i / ySteps);
-        var value = minVal + (maxVal - minVal) * (i / ySteps);
+        var y = (graphHeight * (1 - i / ySteps)).toFixed(2);
+        var value = minVal + valueRange * (i / ySteps);
         
-        // Horizontal grid line
-        svg += '<line x1="0" y1="' + y.toFixed(2) + '" x2="' + graphWidth + '" y2="' + y.toFixed(2) + '" stroke="' + colors.gridLines + '" stroke-width="1" opacity="0.5"/>';
-        
-        // Y-axis label
-        svg += '<text x="-10" y="' + (y + 4).toFixed(2) + '" text-anchor="end" font-size="11" fill="' + colors.text + '">' + valueFormatter(value) + '</text>';
+        svg.push('<line x1="0" y1="', y, '" x2="', graphWidth, '" y2="', y, '" stroke="', colors.gridLines, '" stroke-width="1" opacity="0.5"/>');
+        svg.push('<text x="-10" y="', (parseFloat(y) + 4).toFixed(2), '" text-anchor="end" font-size="11" fill="', colors.text, '">', valueFormatter(value), '</text>');
     }
 
     // X-axis grid and labels
-    var timestamps = allData.map(function(d) { return d.timestamp; });
-    var minTime = Math.min.apply(Math, timestamps);
-    var maxTime = Math.max.apply(Math, timestamps);
-    if (maxTime === minTime) maxTime = minTime + 1;
-
-    var timeRange = maxTime - minTime;
     var xSteps = Math.min(8, Math.max(4, Math.floor(graphWidth / 100)));
     
-    for (var i = 0; i <= xSteps; i++) {
-        var x = graphWidth * i / xSteps;
-        var timestamp = minTime + timeRange * i / xSteps;
-        var date = new Date(timestamp * 1000);
-        
-        // Adaptive time formatting
-        var timeStr;
-        if (timeRange > 86400 * 7) {
-            timeStr = (date.getMonth() + 1) + '/' + date.getDate();
-        } else if (timeRange > 86400) {
-            timeStr = (date.getMonth() + 1) + '/' + date.getDate() + ' ' + 
-                      ('0' + date.getHours()).slice(-2) + ':' + ('0' + date.getMinutes()).slice(-2);
-        } else if (timeRange > 3600) {
-            timeStr = ('0' + date.getHours()).slice(-2) + ':' + ('0' + date.getMinutes()).slice(-2);
-        } else {
-            timeStr = ('0' + date.getHours()).slice(-2) + ':' + 
-                      ('0' + date.getMinutes()).slice(-2) + ':' + 
-                      ('0' + date.getSeconds()).slice(-2);
-        }
-        
-        // Vertical grid line
-        svg += '<line x1="' + x.toFixed(2) + '" y1="0" x2="' + x.toFixed(2) + '" y2="' + graphHeight + '" stroke="' + colors.gridLines + '" stroke-width="1" opacity="0.5"/>';
-        
-        // X-axis label
-        svg += '<text x="' + x.toFixed(2) + '" y="' + (graphHeight + 20) + '" text-anchor="middle" font-size="11" fill="' + colors.text + '">' + timeStr + '</text>';
+    // Pre-calculate time formatting function based on range
+    var formatTime;
+    if (timeRange > 604800) { // > 7 days
+        formatTime = function(ts) {
+            var d = new Date(ts * 1000);
+            return (d.getMonth() + 1) + '/' + d.getDate();
+        };
+    } else if (timeRange > 86400) { // > 1 day
+        formatTime = function(ts) {
+            var d = new Date(ts * 1000);
+            return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + 
+                   ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+        };
+    } else if (timeRange > 3600) { // > 1 hour
+        formatTime = function(ts) {
+            var d = new Date(ts * 1000);
+            return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+        };
+    } else {
+        formatTime = function(ts) {
+            var d = new Date(ts * 1000);
+            return ('0' + d.getHours()).slice(-2) + ':' + 
+                   ('0' + d.getMinutes()).slice(-2) + ':' + 
+                   ('0' + d.getSeconds()).slice(-2);
+        };
     }
 
-    // Draw series data with area fill
-    series.forEach(function(s, index) {
-        var validData = s.data.filter(function(d) { return !isNaN(d.value) && d.value >= 0; });
-        if (validData.length === 0) return;
+    for (var i = 0; i <= xSteps; i++) {
+        var x = (graphWidth * i / xSteps).toFixed(2);
+        var timestamp = minTime + timeRange * i / xSteps;
+        var timeStr = formatTime(timestamp);
         
-        var color = colors.series[index % colors.series.length];
+        svg.push('<line x1="', x, '" y1="0" x2="', x, '" y2="', graphHeight, '" stroke="', colors.gridLines, '" stroke-width="1" opacity="0.5"/>');
+        svg.push('<text x="', x, '" y="', (graphHeight + 20), '" text-anchor="middle" font-size="11" fill="', colors.text, '">', timeStr, '</text>');
+    }
+
+    // Draw series data
+    var avgStep = timeRange / (allData.length / series.length);
+    var gapThreshold = avgStep * 3;
+
+    for (var si = 0; si < seriesCount; si++) {
+        var s = series[si];
+        if (!s.data || s.data.length === 0) continue;
         
-        // Group data into continuous segments
-        var segments = [];
-        var currentSegment = [];
+        var color = colors.series[si % colors.series.length];
+        var validData = [];
         
-        for (var i = 0; i < validData.length; i++) {
-            currentSegment.push(validData[i]);
-            
-            if (i < validData.length - 1) {
-                var timeDiff = validData[i + 1].timestamp - validData[i].timestamp;
-                var avgStep = timeRange / validData.length;
-                if (timeDiff > avgStep * 3) {
-                    segments.push(currentSegment);
-                    currentSegment = [];
-                }
+        // Filter valid data once
+        var dataLen = s.data.length;
+        for (var di = 0; di < dataLen; di++) {
+            var d = s.data[di];
+            var val = d.value;
+            if (needsTransform) {
+                val = metricType === 'cpu_total' ? val * valueMultiplier : val / transformDivisor;
+            }
+            if (!isNaN(val) && val >= 0) {
+                validData.push({ timestamp: d.timestamp, value: val });
             }
         }
-        if (currentSegment.length > 0) segments.push(currentSegment);
+
+        if (validData.length === 0) continue;
+
+        // Pre-calculate escaped name once
+        var escapedName = s.name.replace(/[^a-zA-Z0-9]/g, '_');
+        var escapedNameJS = s.name.replace(/'/g, "\\'");
+
+        // Group into segments
+        var segments = [];
+        var currentSegment = [validData[0]];
         
-        // Draw each segment
-        segments.forEach(function(segment) {
-            if (segment.length < 2) return;
+        for (var i = 1; i < validData.length; i++) {
+            if (validData[i].timestamp - validData[i-1].timestamp > gapThreshold) {
+                segments.push(currentSegment);
+                currentSegment = [validData[i]];
+            } else {
+                currentSegment.push(validData[i]);
+            }
+        }
+        segments.push(currentSegment);
+
+        // Draw segments
+        for (var segi = 0; segi < segments.length; segi++) {
+            var segment = segments[segi];
+            if (segment.length < 2) continue;
             
-            // Create area path
-            var areaPath = '';
-            var linePath = '';
+            var areaPath = [];
+            var linePath = [];
             
-            segment.forEach(function(d, i) {
-                var x = graphWidth * (d.timestamp - minTime) / timeRange;
-                var rawValue = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
-                var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, rawValue)) - minVal) / (maxVal - minVal));
+            for (var i = 0; i < segment.length; i++) {
+                var d = segment[i];
+                var x = (graphWidth * (d.timestamp - minTime) / timeRange).toFixed(2);
+                var y = (graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, d.value)) - minVal) / valueRange)).toFixed(2);
                 
                 if (i === 0) {
-                    linePath = 'M' + x.toFixed(2) + ',' + y.toFixed(2);
-                    areaPath = 'M' + x.toFixed(2) + ',' + graphHeight + ' L' + x.toFixed(2) + ',' + y.toFixed(2);
+                    linePath.push('M', x, ',', y);
+                    areaPath.push('M', x, ',', graphHeight, ' L', x, ',', y);
                 } else {
-                    linePath += ' L' + x.toFixed(2) + ',' + y.toFixed(2);
-                    areaPath += ' L' + x.toFixed(2) + ',' + y.toFixed(2);
+                    linePath.push(' L', x, ',', y);
+                    areaPath.push(' L', x, ',', y);
                 }
-            });
+            }
             
             var lastPoint = segment[segment.length - 1];
-            var lastX = graphWidth * (lastPoint.timestamp - minTime) / timeRange;
-            areaPath += ' L' + lastX.toFixed(2) + ',' + graphHeight + ' Z';
+            var lastX = (graphWidth * (lastPoint.timestamp - minTime) / timeRange).toFixed(2);
+            areaPath.push(' L', lastX, ',', graphHeight, ' Z');
             
-            // Draw area with gradient
-            var gradientId = 'gradient-' + index + '-' + segments.indexOf(segment);
-            svg += '<defs><linearGradient id="' + gradientId + '" x1="0%" y1="0%" x2="0%" y2="100%">';
-            svg += '<stop offset="0%" style="stop-color:' + color + ';stop-opacity:0.3"/>';
-            svg += '<stop offset="100%" style="stop-color:' + color + ';stop-opacity:0.05"/>';
-            svg += '</linearGradient></defs>';
+            var gradientId = 'g' + si + '-' + segi;
+            svg.push('<defs><linearGradient id="', gradientId, '" x1="0%" y1="0%" x2="0%" y2="100%">');
+            svg.push('<stop offset="0%" style="stop-color:', color, ';stop-opacity:0.3"/>');
+            svg.push('<stop offset="100%" style="stop-color:', color, ';stop-opacity:0.05"/>');
+            svg.push('</linearGradient></defs>');
             
-            svg += '<path d="' + areaPath + '" fill="url(#' + gradientId + ')"/>';
-            svg += '<path d="' + linePath + '" stroke="' + color + '" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
-        });
+            svg.push('<path d="', areaPath.join(''), '" fill="url(#', gradientId, ')"/>');
+            svg.push('<path d="', linePath.join(''), '" stroke="', color, '" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>');
+        }
         
         // Draw hover points
-        validData.forEach(function(d, i) {
-            var x = graphWidth * (d.timestamp - minTime) / timeRange;
-            var rawValue = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
-            var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, rawValue)) - minVal) / (maxVal - minVal));
-            var pointId = 'point-' + s.name.replace(/[^a-zA-Z0-9]/g, '_') + '-' + i;
+        for (var i = 0; i < validData.length; i++) {
+            var d = validData[i];
+            var x = (graphWidth * (d.timestamp - minTime) / timeRange).toFixed(2);
+            var y = (graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, d.value)) - minVal) / valueRange)).toFixed(2);
+            var pointId = 'p-' + escapedName + '-' + i;
+            
             var date = new Date(d.timestamp * 1000);
             var timeStr = ('0' + date.getHours()).slice(-2) + ':' + 
                           ('0' + date.getMinutes()).slice(-2) + ':' + 
                           ('0' + date.getSeconds()).slice(-2);
             
-            svg += '<circle id="' + pointId + '" cx="' + x.toFixed(2) + '" cy="' + y.toFixed(2) + '" r="4" fill="' + color + '" opacity="0" style="cursor: pointer;" onmouseover="showTooltip(evt, \'' + s.name + '\', \'' + valueFormatter(rawValue) + '\', \'' + timeStr + '\', ' + x.toFixed(2) + ', ' + y.toFixed(2) + ')" onmouseout="hideTooltip()"/>';
-        });
-    });
+            svg.push('<circle id="', pointId, '" cx="', x, '" cy="', y, '" r="4" fill="', color, '" opacity="0" style="cursor: pointer;" onmouseover="showTooltip(evt, \'', escapedNameJS, '\', \'', valueFormatter(d.value), '\', \'', timeStr, '\', ', x, ', ', y, ')" onmouseout="hideTooltip()"/>');
+        }
+    }
 
-    svg += '</g>';
+    svg.push('</g>');
 
     // Title
-    svg += '<text x="' + (width / 2) + '" y="25" text-anchor="middle" font-size="16" font-weight="600" fill="' + colors.textPrimary + '">' + title + '</text>';
+    svg.push('<text x="', width / 2, '" y="25" text-anchor="middle" font-size="16" font-weight="600" fill="', colors.textPrimary, '">', title, '</text>');
     
     // Y-axis label
-    svg += '<text x="20" y="' + (height / 2) + '" text-anchor="middle" transform="rotate(-90,20,' + (height / 2) + ')" font-size="12" font-weight="500" fill="' + colors.text + '">' + yLabel + '</text>';
+    svg.push('<text x="20" y="', height / 2, '" text-anchor="middle" transform="rotate(-90,20,', height / 2, ')" font-size="12" font-weight="500" fill="', colors.text, '">', yLabel, '</text>');
     
     // Legend
     var legendY = height - 35;
     var legendX = margin.left;
     
-    svg += '<g font-size="11">';
-    series.forEach(function(s, index) {
-        if (!s.data || s.data.length === 0) return;
+    svg.push('<g font-size="11">');
+    for (var si = 0; si < seriesCount; si++) {
+        var s = series[si];
+        if (!s.data || s.data.length === 0) continue;
         
         var lastPoint = s.data[s.data.length - 1];
-        if (!lastPoint || isNaN(lastPoint.value) || lastPoint.value < 0) return;
+        if (!lastPoint || isNaN(lastPoint.value) || lastPoint.value < 0) continue;
         
-        var rawValue = (metricType === 'ram_process') ? lastPoint.value / 1024 / 1024 : lastPoint.value;
-        var color = colors.series[index % colors.series.length];
+        var rawValue = lastPoint.value;
+        if (needsTransform) {
+            rawValue = metricType === 'cpu_total' ? rawValue * valueMultiplier : rawValue / transformDivisor;
+        }
         
-        // Legend item background
+        var color = colors.series[si % colors.series.length];
         var itemWidth = 180;
-        svg += '<rect x="' + legendX + '" y="' + (legendY - 12) + '" width="' + itemWidth + '" height="18" fill="' + colors.gridLines + '" opacity="0.3" rx="3"/>';
         
-        // Color indicator
-        svg += '<rect x="' + (legendX + 5) + '" y="' + (legendY - 7) + '" width="10" height="10" fill="' + color + '" rx="2"/>';
-        
-        // Series name and value
-        svg += '<text x="' + (legendX + 20) + '" y="' + (legendY + 2) + '" fill="' + colors.textPrimary + '" font-weight="500">' + s.name + ':</text>';
-        svg += '<text x="' + (legendX + 90) + '" y="' + (legendY + 2) + '" fill="' + color + '" font-weight="600">' + valueFormatter(rawValue) + '</text>';
+        svg.push('<rect x="', legendX, '" y="', (legendY - 12), '" width="', itemWidth, '" height="18" fill="', colors.gridLines, '" opacity="0.3" rx="3"/>');
+        svg.push('<rect x="', (legendX + 5), '" y="', (legendY - 7), '" width="10" height="10" fill="', color, '" rx="2"/>');
+        svg.push('<text x="', (legendX + 20), '" y="', (legendY + 2), '" fill="', colors.textPrimary, '" font-weight="500">', s.name, ':</text>');
+        svg.push('<text x="', (legendX + 90), '" y="', (legendY + 2), '" fill="', color, '" font-weight="600">', valueFormatter(rawValue), '</text>');
         
         legendX += itemWidth + 15;
         if (legendX > width - 200) {
             legendX = margin.left;
             legendY += 25;
         }
-    });
-    svg += '</g>';
+    }
+    svg.push('</g>');
 
     // Tooltip group
-    svg += '<g id="tooltip" visibility="hidden">';
-    svg += '<rect x="0" y="0" width="160" height="50" fill="#000000" opacity="0.9" rx="6"/>';
-    svg += '<text x="8" y="18" font-size="11" fill="' + colors.text + '" id="tooltip-series"></text>';
-    svg += '<text x="8" y="35" font-size="12" font-weight="600" fill="' + colors.textPrimary + '" id="tooltip-value"></text>';
-    svg += '</g>';
-    svg += '</svg>';
+    svg.push('<g id="tooltip" visibility="hidden">');
+    svg.push('<rect x="0" y="0" width="160" height="50" fill="#ffffff" opacity="0.98" rx="6" stroke="', colors.gridLines, '" stroke-width="1" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.1))"/>');
+    svg.push('<text x="8" y="18" font-size="11" fill="', colors.text, '" id="tooltip-series"></text>');
+    svg.push('<text x="8" y="35" font-size="12" font-weight="600" fill="', colors.textPrimary, '" id="tooltip-value"></text>');
+    svg.push('</g>');
+    svg.push('</svg>');
 
-    return svg;
+    return svg.join('');
 }

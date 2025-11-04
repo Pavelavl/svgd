@@ -301,7 +301,7 @@
                 <span class="status-dot active" id="statusDot"></span>
                 <span id="statusText">Live</span>
             </div>
-            <select id="timePeriod" class="btn" style="width: auto;">
+            <select class="p-2.5" id="timePeriod" style="width: auto;">
                 <option value="300">Last 5 min</option>
                 <option value="900">Last 15 min</option>
                 <option value="1800">Last 30 min</option>
@@ -348,7 +348,7 @@
             <form id="addPanelForm">
                 <div class="form-group">
                     <label class="form-label">Metric Type</label>
-                    <select id="newPanelType">
+                    <select class="p-2.5" id="newPanelType">
                         <option value="cpu">CPU Total</option>
                         <option value="cpu/process">CPU Process</option>
                         <option value="ram">RAM Total</option>
@@ -525,7 +525,7 @@
             });
             
             // Reset all points
-            document.querySelectorAll('circle[id^="point-"]').forEach(circle => {
+            document.querySelectorAll('circle[id^="p-"]').forEach(circle => {
                 circle.setAttribute('r', '4');
                 circle.setAttribute('opacity', '0');
             });
