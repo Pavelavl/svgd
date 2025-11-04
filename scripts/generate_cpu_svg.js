@@ -71,7 +71,6 @@ function generateSVG(series, options) {
             title = 'CPU Utilization';
             yLabel = 'Usage (%)';
             isPercentage = true;
-            valueMultiplier = 100;
             needsTransform = true;
             valueFormatter = function(v) { return v.toFixed(1); };
             break;
