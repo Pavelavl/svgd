@@ -225,24 +225,6 @@ function createPanel(panelConfig) {
                 </button>
             </div>
         </div>
-        <div class="panel-stats" id="stats-${panelConfig.id}" style="display: none;">
-            <div class="panel-stat">
-                <div class="panel-stat-label">Current</div>
-                <div class="panel-stat-value" id="stat-current-${panelConfig.id}">--</div>
-            </div>
-            <div class="panel-stat">
-                <div class="panel-stat-label">Average</div>
-                <div class="panel-stat-value" id="stat-avg-${panelConfig.id}">--</div>
-            </div>
-            <div class="panel-stat">
-                <div class="panel-stat-label">Min</div>
-                <div class="panel-stat-value" id="stat-min-${panelConfig.id}">--</div>
-            </div>
-            <div class="panel-stat">
-                <div class="panel-stat-label">Max</div>
-                <div class="panel-stat-value" id="stat-max-${panelConfig.id}">--</div>
-            </div>
-        </div>
         <div class="graph-container" id="graph-${panelConfig.id}">
             <div class="loading"></div>
         </div>
@@ -275,11 +257,6 @@ async function updatePanel(panelConfig) {
             statusBadge.style.display = 'inline-block';
         }
         updateStatusIndicator(true);
-        
-        // Update stats if enabled
-        if (document.getElementById('showStats').checked) {
-            updatePanelStats(panelConfig.id, svgElement);
-        }
     } else {
         graphContainer.innerHTML = `<div class="error-message">Error: ${result.error}<br><small>Check if svgd-gateway is running on ${config.apiBaseUrl}</small></div>`;
         if (statusBadge) {
@@ -288,21 +265,6 @@ async function updatePanel(panelConfig) {
         }
         updateStatusIndicator(false);
     }
-}
-
-function updatePanelStats(panelId, svgElement) {
-    // Extract data points from SVG (simplified - you might need to parse more carefully)
-    const statsContainer = document.getElementById(`stats-${panelId}`);
-    if (!statsContainer) return;
-    
-    statsContainer.style.display = 'grid';
-    
-    // These would need to be calculated from actual data
-    // For demo purposes, showing placeholders
-    document.getElementById(`stat-current-${panelId}`).textContent = '--';
-    document.getElementById(`stat-avg-${panelId}`).textContent = '--';
-    document.getElementById(`stat-min-${panelId}`).textContent = '--';
-    document.getElementById(`stat-max-${panelId}`).textContent = '--';
 }
 
 async function refreshPanel(panelId) {
@@ -491,10 +453,180 @@ function importDashboard() {
 }
 
 function takeSnapshot() {
-    showToast('Taking snapshot... (This is a demo feature)', 'info');
+    showToast('Creating snapshot...', 'info', 1500);
+    
     setTimeout(() => {
-        showToast('Snapshot saved!', 'success');
-    }, 1500);
+        try {
+            // Get current timestamp
+            const timestamp = new Date();
+            const timestampStr = timestamp.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            
+            // Collect all SVGs
+            const panels = [];
+            config.panels.forEach(panel => {
+                const graphContainer = document.getElementById(`graph-${panel.id}`);
+                const svg = graphContainer ? graphContainer.querySelector('svg') : null;
+                
+                if (svg) {
+                    panels.push({
+                        id: panel.id,
+                        title: panel.title,
+                        svg: new XMLSerializer().serializeToString(svg)
+                    });
+                }
+            });
+            
+            if (panels.length === 0) {
+                showToast('No panels to snapshot', 'error');
+                closeDropdown('exportDropdown');
+                return;
+            }
+            
+            // Create HTML snapshot
+            const theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+            const snapshotHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Snapshot - ${timestamp.toLocaleString()}</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: ${theme === 'dark' ? '#0b0c0e' : '#f7f8fa'};
+            color: ${theme === 'dark' ? '#ffffff' : '#1a202c'};
+            padding: 2rem;
+        }
+        
+        .header {
+            max-width: 1800px;
+            margin: 0 auto 2rem;
+            padding: 1.5rem;
+            background: ${theme === 'dark' ? '#17181a' : '#ffffff'};
+            border: 1px solid ${theme === 'dark' ? '#2d2e32' : '#e2e8f0'};
+            border-radius: 8px;
+        }
+        
+        .header h1 {
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+        
+        .header .meta {
+            font-size: 0.875rem;
+            color: ${theme === 'dark' ? '#9fa6b2' : '#4a5568'};
+        }
+        
+        .info-box {
+            background: ${theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)'};
+            border: 1px solid ${theme === 'dark' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)'};
+            border-radius: 6px;
+            padding: 1rem;
+            margin-top: 1rem;
+            font-size: 0.875rem;
+        }
+        
+        .panels {
+            max-width: 1800px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .panel {
+            background: ${theme === 'dark' ? '#1f2023' : '#ffffff'};
+            border: 1px solid ${theme === 'dark' ? '#2d2e32' : '#e2e8f0'};
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, ${theme === 'dark' ? '0.3' : '0.1'});
+        }
+        
+        .panel-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid ${theme === 'dark' ? '#2d2e32' : '#e2e8f0'};
+        }
+        
+        .panel svg {
+            width: 100%;
+            height: auto;
+        }
+        
+        .footer {
+            max-width: 1800px;
+            margin: 2rem auto 0;
+            text-align: center;
+            color: ${theme === 'dark' ? '#9fa6b2' : '#4a5568'};
+            font-size: 0.75rem;
+            padding-top: 1rem;
+            border-top: 1px solid ${theme === 'dark' ? '#2d2e32' : '#e2e8f0'};
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            .panel {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>📊 ${config.dashboardName}</h1>
+        <div class="meta">
+            <div><strong>Snapshot taken:</strong> ${timestamp.toLocaleString()}</div>
+            <div><strong>Time range:</strong> ${document.getElementById('currentTimeRange').textContent}</div>
+            <div><strong>Number of panels:</strong> ${panels.length}</div>
+        </div>
+        <div class="info-box">
+            ℹ️ This is a static snapshot of the dashboard. Data is frozen at the time of capture.
+            To view live data, use the main dashboard application.
+        </div>
+    </div>
+    
+    <div class="panels">
+        ${panels.map(p => `
+            <div class="panel">
+                <div class="panel-title">${p.title}</div>
+                ${p.svg}
+            </div>
+        `).join('')}
+    </div>
+    
+    <div class="footer">
+        <p>Generated by SVGD Metrics Dashboard</p>
+        <p>API Server: ${config.apiBaseUrl}</p>
+    </div>
+</body>
+</html>`;
+            
+            // Download the snapshot
+            const blob = new Blob([snapshotHTML], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `dashboard-snapshot-${timestampStr}.html`;
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            showToast(`Snapshot saved: ${panels.length} panels captured`, 'success');
+        } catch (error) {
+            console.error('Snapshot error:', error);
+            showToast('Failed to create snapshot', 'error');
+        }
+    }, 100);
+    
     closeDropdown('exportDropdown');
 }
 
@@ -507,11 +639,6 @@ function resetDashboard() {
 
 function updatePanelCount() {
     document.getElementById('panelCount').textContent = `${config.panels.length} panel${config.panels.length !== 1 ? 's' : ''}`;
-}
-
-function toggleAllPanels(action) {
-    // This is a placeholder - implement collapse/expand logic
-    showToast(`${action === 'collapse' ? 'Collapsed' : 'Expanded'} all panels`, 'info', 2000);
 }
 
 // ===== UI Functions =====
@@ -729,32 +856,9 @@ document.addEventListener('DOMContentLoaded', () => {
         saveConfigToStorage();
     });
 
-    document.getElementById('showStats').addEventListener('change', function() {
-        document.querySelectorAll('.panel-stats').forEach(stats => {
-            stats.style.display = this.checked ? 'grid' : 'none';
-        });
-    });
-
-    // Keyboard shortcuts
+    // Keyboard shortcuts - only Escape for closing modals
     document.addEventListener('keydown', function (e) {
-        if (e.ctrlKey || e.metaKey) {
-            if (e.key === 'r') {
-                e.preventDefault();
-                updateAllPanels();
-            } else if (e.key === 'n') {
-                e.preventDefault();
-                openModal('addPanelModal');
-            } else if (e.key === 't') {
-                e.preventDefault();
-                document.getElementById('themeToggle').click();
-            } else if (e.key === 's') {
-                e.preventDefault();
-                saveConfigToStorage();
-            } else if (e.key === 'f') {
-                e.preventDefault();
-                document.getElementById('searchPanels').focus();
-            }
-        } else if (e.key === 'Escape') {
+        if (e.key === 'Escape') {
             document.querySelectorAll('.modal.show').forEach(modal => {
                 modal.classList.remove('show');
             });
