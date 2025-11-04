@@ -124,9 +124,9 @@ js:
 - Эндпоинт: cpu/process/<process_name>
 - Описание: Возвращает SVG-график времени CPU для указанного процесса (в секундах).
 - Метрика: cpu_process
-- RRD-файл: <rrd_base_path>/<path_cpu_process> с заменой %s на <process_name> (например, /opt/collectd/var/lib/collectd/rrd/localhost/processes-postgres/ps_cputime.rrd)
+- RRD-файл: <rrd_base_path>/<path_cpu_process> с заменой %s на <process_name> (например, /opt/collectd/var/lib/collectd/rrd/localhost/processes-systemd/ps_cputime.rrd)
 
-<img src="examples/cpu_process_postgres.svg"/>
+<img src="examples/cpu_process_systemd.svg"/>
 
 ### 3. Общая загрузка памяти
 
