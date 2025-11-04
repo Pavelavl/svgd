@@ -1,46 +1,62 @@
 function generateSVG(series, options) {
     // Validate inputs
     if (typeof series === 'undefined' || typeof options === 'undefined') {
-        return '<svg width="600" height="400" xmlns="http://www.w3.org/2000/svg"><text x="300" y="200" text-anchor="middle" fill="red">Error: Invalid input</text></svg>';
+        return '<svg width="800" height="450" xmlns="http://www.w3.org/2000/svg"><text x="400" y="225" text-anchor="middle" fill="#ef4444" font-size="14">Error: Invalid input</text></svg>';
     }
 
-    var width = 600;
-    var height = 400;
-    var margin = { top: 30, right: 30, bottom: 70, left: 60 };
+    var width = 800;
+    var height = 450;
+    var margin = { top: 45, right: 40, bottom: 80, left: 75 };
     var graphWidth = width - margin.left - margin.right;
     var graphHeight = height - margin.top - margin.bottom;
 
-    var svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg" style="font-family: Arial, sans-serif; width: 100%; height: 100%;" preserveAspectRatio="xMidYMid meet">';
-    svg += '<rect width="100%" height="100%" fill="#ffffff"/>';
+    // Dark theme colors (Grafana-style)
+    var colors = {
+        background: '#1f2023',
+        gridLines: '#2d2e32',
+        text: '#9fa6b2',
+        textPrimary: '#ffffff',
+        axis: '#4a5568',
+        series: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
+    };
+
+    var svg = '<svg viewBox="0 0 ' + width + ' ' + height + '" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; width: 100%; height: 100%;" preserveAspectRatio="xMidYMid meet">';
+    
+    // Background
+    svg += '<rect width="100%" height="100%" fill="' + colors.background + '"/>';
 
     if (!series || !Array.isArray(series) || series.length === 0) {
-        svg += '<text x="' + (width / 2) + '" y="' + (height / 2) + '" text-anchor="middle" fill="red">Error: No data series</text>';
-        svg += '</svg>';
+        svg += '<text x="' + (width / 2) + '" y="' + (height / 2) + '" text-anchor="middle" fill="#ef4444" font-size="14">Error: No data series</text></svg>';
         return svg;
     }
 
     var metricType = options.metricType || 'unknown';
     var param1 = options.param1 || '';
+    
+    // Collect all data points
     var allData = [];
     series.forEach(function(s) {
         if (!s.data || !Array.isArray(s.data)) return;
         s.data.forEach(function(d) {
             if (!isNaN(d.value) && d.value >= 0) {
-                allData.push({ timestamp: d.timestamp, value: d.value, seriesName: s.name });
+                allData.push({ 
+                    timestamp: d.timestamp, 
+                    value: d.value, 
+                    seriesName: s.name 
+                });
             }
         });
     });
 
     if (allData.length === 0) {
-        svg += '<text x="' + (width / 2) + '" y="' + (height / 2) + '" text-anchor="middle" fill="red">Error: No valid data points</text>';
-        svg += '</svg>';
+        svg += '<text x="' + (width / 2) + '" y="' + (height / 2) + '" text-anchor="middle" fill="#ef4444" font-size="14">Error: No valid data points</text></svg>';
         return svg;
     }
 
     var title = '';
     var yLabel = '';
     var isPercentage = false;
-    var valueFormatter = function(value) { return value.toFixed(1); };
+    var valueFormatter = function(value) { return value.toFixed(2); };
     var minVal, maxVal;
 
     switch (metricType) {
@@ -49,45 +65,63 @@ function generateSVG(series, options) {
             yLabel = 'Usage (%)';
             isPercentage = true;
             allData = allData.map(function(d) { 
-                return { 
-                    timestamp: d.timestamp, 
-                    value: d.value * 100,
-                    seriesName: d.seriesName 
-                }; 
+                return { timestamp: d.timestamp, value: d.value * 100, seriesName: d.seriesName }; 
             });
+            valueFormatter = function(value) { return value.toFixed(1); };
             break;
         case 'cpu_process':
-            title = 'CPU Utilization for ' + param1;
-            yLabel = 'CPU Time (s)';
+            title = 'CPU Time for ' + param1;
+            yLabel = 'CPU Time (seconds)';
+            valueFormatter = function(value) { return value.toFixed(2); };
             break;
         case 'ram_total':
             title = 'RAM Utilization';
             yLabel = 'Usage (%)';
             isPercentage = true;
+            valueFormatter = function(value) { return value.toFixed(1); };
             break;
         case 'ram_process':
             title = 'Memory Usage for ' + param1;
             yLabel = 'Memory (MB)';
-            allData = allData.map(function(d) { return { timestamp: d.timestamp, value: d.value / 1024 / 1024, seriesName: d.seriesName }; });
-            valueFormatter = function(value) { return value.toFixed(1) + ' MB'; };
+            allData = allData.map(function(d) { 
+                return { timestamp: d.timestamp, value: d.value / 1024 / 1024, seriesName: d.seriesName }; 
+            });
+            valueFormatter = function(value) { return value.toFixed(1); };
             break;
         case 'network':
             title = 'Network Traffic for ' + param1;
-            yLabel = 'Traffic (bytes/s)';
+            if (value >= 1024*1024*1024) {
+                yLabel = 'Traffic (GB/s)';
+            } else if (value >= 1024*1024) {
+                yLabel = 'Traffic (MB/s)';
+            } else if (value >= 1024) {
+                yLabel = 'Traffic (KB/s)';
+            } else {
+                yLabel = 'Traffic (B/s)';
+            }
+            valueFormatter = function (value) {
+                if (value >= 1024*1024*1024) return (value / 1024*1024*1024).toFixed(2);
+                if (value >= 1024*1024) return (value / 1024*1024).toFixed(2);
+                if (value >= 1024) return (value / 1024).toFixed(2);
+                return value.toFixed(2);
+            };
             break;
         case 'disk':
             title = 'Disk Operations for ' + param1;
             yLabel = 'Operations/s';
+            valueFormatter = function(value) { return value.toFixed(1); };
             break;
         case 'postgresql_connections':
             title = 'PostgreSQL Connections';
             yLabel = 'Connections';
+            valueFormatter = function(value) { return Math.round(value).toString(); };
             break;
         default:
             title = 'Metric';
             yLabel = 'Value';
     }
 
+    // Calculate value range
     if (isPercentage) {
         minVal = 0;
         maxVal = 100;
@@ -95,165 +129,194 @@ function generateSVG(series, options) {
         var values = allData.map(function(d) { return d.value; });
         minVal = Math.min.apply(Math, values);
         maxVal = Math.max.apply(Math, values);
-        if (maxVal === minVal) {
-            maxVal = minVal + 1;
-        } else if (maxVal - minVal < 0.1) {
-            maxVal += (maxVal - minVal) * 0.1;
-        }
+        
+        // Add padding
+        var padding = (maxVal - minVal) * 0.1;
+        if (padding === 0) padding = Math.abs(maxVal) * 0.1 || 1;
+        minVal = Math.max(0, minVal - padding);
+        maxVal = maxVal + padding;
     }
 
+    // Main graph group
     svg += '<g transform="translate(' + margin.left + ',' + margin.top + ')">';
-    svg += '<rect width="' + graphWidth + '" height="' + graphHeight + '" fill="#f8f9fc" stroke="#ddd"/>';
+    
+    // Background panel
+    svg += '<rect width="' + graphWidth + '" height="' + graphHeight + '" fill="' + colors.background + '" stroke="' + colors.gridLines + '" stroke-width="1"/>';
 
+    // Grid lines
     var ySteps = 5;
-    svg += '<g stroke-width="1">';
     for (var i = 0; i <= ySteps; i++) {
         var y = graphHeight * (1 - i / ySteps);
         var value = minVal + (maxVal - minVal) * (i / ySteps);
-        svg += '<line x1="0" y1="' + y + '" x2="' + graphWidth + '" y2="' + y + '" stroke="#eee" />';
-        svg += '<text x="-5" y="' + (y + 4) + '" text-anchor="end" font-size="10" fill="#666">' + valueFormatter(value) + '</text>';
+        
+        // Horizontal grid line
+        svg += '<line x1="0" y1="' + y.toFixed(2) + '" x2="' + graphWidth + '" y2="' + y.toFixed(2) + '" stroke="' + colors.gridLines + '" stroke-width="1" opacity="0.5"/>';
+        
+        // Y-axis label
+        svg += '<text x="-10" y="' + (y + 4).toFixed(2) + '" text-anchor="end" font-size="11" fill="' + colors.text + '">' + valueFormatter(value) + '</text>';
     }
-    svg += '</g>';
 
-    var xSteps = 5;
+    // X-axis grid and labels
     var timestamps = allData.map(function(d) { return d.timestamp; });
     var minTime = Math.min.apply(Math, timestamps);
     var maxTime = Math.max.apply(Math, timestamps);
+    if (maxTime === minTime) maxTime = minTime + 1;
 
-    if (maxTime === minTime) {
-        maxTime = minTime + 1;
-    }
-    svg += '<g stroke-width="1">';
+    var timeRange = maxTime - minTime;
+    var xSteps = Math.min(8, Math.max(4, Math.floor(graphWidth / 100)));
+    
     for (var i = 0; i <= xSteps; i++) {
         var x = graphWidth * i / xSteps;
-        var timestamp = minTime + (maxTime - minTime) * i / xSteps;
+        var timestamp = minTime + timeRange * i / xSteps;
         var date = new Date(timestamp * 1000);
         
-        // Адаптивное форматирование в зависимости от диапазона
-        var timeRange = maxTime - minTime;
+        // Adaptive time formatting
         var timeStr;
         if (timeRange > 86400 * 7) {
-            // Больше недели - показываем дату
             timeStr = (date.getMonth() + 1) + '/' + date.getDate();
         } else if (timeRange > 86400) {
-            // Больше дня - показываем день и время
             timeStr = (date.getMonth() + 1) + '/' + date.getDate() + ' ' + 
-                      date.getHours() + ':' + ('0' + date.getMinutes()).slice(-2);
+                      ('0' + date.getHours()).slice(-2) + ':' + ('0' + date.getMinutes()).slice(-2);
+        } else if (timeRange > 3600) {
+            timeStr = ('0' + date.getHours()).slice(-2) + ':' + ('0' + date.getMinutes()).slice(-2);
         } else {
-            // Меньше дня - только время
-            timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            timeStr = ('0' + date.getHours()).slice(-2) + ':' + 
+                      ('0' + date.getMinutes()).slice(-2) + ':' + 
+                      ('0' + date.getSeconds()).slice(-2);
         }
         
-        svg += '<line x1="' + x + '" y1="0" x2="' + x + '" y2="' + graphHeight + '" stroke="#eee"/>';
-        svg += '<text x="' + x + '" y="' + (graphHeight + 20) + '" text-anchor="middle" font-size="10" fill="#666">' + timeStr + '</text>';
+        // Vertical grid line
+        svg += '<line x1="' + x.toFixed(2) + '" y1="0" x2="' + x.toFixed(2) + '" y2="' + graphHeight + '" stroke="' + colors.gridLines + '" stroke-width="1" opacity="0.5"/>';
+        
+        // X-axis label
+        svg += '<text x="' + x.toFixed(2) + '" y="' + (graphHeight + 20) + '" text-anchor="middle" font-size="11" fill="' + colors.text + '">' + timeStr + '</text>';
     }
-    svg += '</g>';
 
-    var colors = ['#4e73df', '#1cc88a', '#e74a3b', '#36b9cc'];
-    var tooltipId = 'tooltip';
+    // Draw series data with area fill
     series.forEach(function(s, index) {
         var validData = s.data.filter(function(d) { return !isNaN(d.value) && d.value >= 0; });
         if (validData.length === 0) return;
-    
-        // Группировка данных в непрерывные сегменты
+        
+        var color = colors.series[index % colors.series.length];
+        
+        // Group data into continuous segments
         var segments = [];
         var currentSegment = [];
+        
         for (var i = 0; i < validData.length; i++) {
             currentSegment.push(validData[i]);
-            // Проверяем, является ли следующая точка не непрерывной (большой разрыв во времени)
+            
             if (i < validData.length - 1) {
-                var currentTime = validData[i].timestamp;
-                var nextTime = validData[i + 1].timestamp;
-                var timeDiff = nextTime - currentTime;
-                // Предполагаем, что разрыв больше 2 шагов времени (можно настроить)
-                var maxTimeGap = 2 * (maxTime - minTime) / validData.length;
-                if (timeDiff > maxTimeGap) {
+                var timeDiff = validData[i + 1].timestamp - validData[i].timestamp;
+                var avgStep = timeRange / validData.length;
+                if (timeDiff > avgStep * 3) {
                     segments.push(currentSegment);
                     currentSegment = [];
                 }
             }
         }
-        if (currentSegment.length > 0) {
-            segments.push(currentSegment);
-        }
-    
-        // Отрисовка каждого сегмента как отдельного пути
+        if (currentSegment.length > 0) segments.push(currentSegment);
+        
+        // Draw each segment
         segments.forEach(function(segment) {
-            if (segment.length < 2) return; // Для линии нужно минимум 2 точки
-            var path = '';
+            if (segment.length < 2) return;
+            
+            // Create area path
+            var areaPath = '';
+            var linePath = '';
+            
             segment.forEach(function(d, i) {
-                var x = graphWidth * (d.timestamp - minTime) / (maxTime - minTime);
-                var value = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
-                var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, value)) - minVal) / (maxVal - minVal));
-                path += (i === 0 ? 'M' : ' L') + x.toFixed(2) + ',' + y.toFixed(2);
+                var x = graphWidth * (d.timestamp - minTime) / timeRange;
+                var rawValue = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
+                var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, rawValue)) - minVal) / (maxVal - minVal));
+                
+                if (i === 0) {
+                    linePath = 'M' + x.toFixed(2) + ',' + y.toFixed(2);
+                    areaPath = 'M' + x.toFixed(2) + ',' + graphHeight + ' L' + x.toFixed(2) + ',' + y.toFixed(2);
+                } else {
+                    linePath += ' L' + x.toFixed(2) + ',' + y.toFixed(2);
+                    areaPath += ' L' + x.toFixed(2) + ',' + y.toFixed(2);
+                }
             });
-            svg += '<path d="' + path + '" stroke="' + colors[index % colors.length] + '" fill="none" stroke-width="2" stroke-linejoin="round"/>';
+            
+            var lastPoint = segment[segment.length - 1];
+            var lastX = graphWidth * (lastPoint.timestamp - minTime) / timeRange;
+            areaPath += ' L' + lastX.toFixed(2) + ',' + graphHeight + ' Z';
+            
+            // Draw area with gradient
+            var gradientId = 'gradient-' + index + '-' + segments.indexOf(segment);
+            svg += '<defs><linearGradient id="' + gradientId + '" x1="0%" y1="0%" x2="0%" y2="100%">';
+            svg += '<stop offset="0%" style="stop-color:' + color + ';stop-opacity:0.3"/>';
+            svg += '<stop offset="100%" style="stop-color:' + color + ';stop-opacity:0.05"/>';
+            svg += '</linearGradient></defs>';
+            
+            svg += '<path d="' + areaPath + '" fill="url(#' + gradientId + ')"/>';
+            svg += '<path d="' + linePath + '" stroke="' + color + '" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>';
         });
-    
-        // Отрисовка точек для hover-эффекта
+        
+        // Draw hover points
         validData.forEach(function(d, i) {
-            var x = graphWidth * (d.timestamp - minTime) / (maxTime - minTime);
-            var value = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
-            var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, value)) - minVal) / (maxVal - minVal));
-            var pointId = 'point-' + s.name + '-' + i;
+            var x = graphWidth * (d.timestamp - minTime) / timeRange;
+            var rawValue = (metricType === 'ram_process') ? d.value / 1024 / 1024 : d.value;
+            var y = graphHeight * (1 - (Math.min(maxVal, Math.max(minVal, rawValue)) - minVal) / (maxVal - minVal));
+            var pointId = 'point-' + s.name.replace(/[^a-zA-Z0-9]/g, '_') + '-' + i;
             var date = new Date(d.timestamp * 1000);
-            var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            svg += '<circle id="' + pointId + '" cx="' + x.toFixed(2) + '" cy="' + y.toFixed(2) + '" r="5" fill="' + colors[index % colors.length] + '" opacity="0" onmouseover="showTooltip(evt, \'' + s.name + '\', \'' + valueFormatter(value) + '\', \'' + timeStr + '\', ' + x.toFixed(2) + ', ' + y.toFixed(2) + ')" onmouseout="hideTooltip()"/>';
+            var timeStr = ('0' + date.getHours()).slice(-2) + ':' + 
+                          ('0' + date.getMinutes()).slice(-2) + ':' + 
+                          ('0' + date.getSeconds()).slice(-2);
+            
+            svg += '<circle id="' + pointId + '" cx="' + x.toFixed(2) + '" cy="' + y.toFixed(2) + '" r="4" fill="' + color + '" opacity="0" style="cursor: pointer;" onmouseover="showTooltip(evt, \'' + s.name + '\', \'' + valueFormatter(rawValue) + '\', \'' + timeStr + '\', ' + x.toFixed(2) + ', ' + y.toFixed(2) + ')" onmouseout="hideTooltip()"/>';
         });
     });
 
     svg += '</g>';
 
-    // Add tooltip group
-    svg += '<g id="' + tooltipId + '" visibility="hidden">';
-    svg += '<rect x="0" y="0" width="150" height="40" fill="#333" opacity="0.8" rx="5"/>';
-    svg += '<text x="5" y="15" font-size="10" fill="#fff" id="tooltip-series"></text>';
-    svg += '<text x="5" y="30" font-size="10" fill="#fff" id="tooltip-value"></text>';
-    svg += '</g>';
-
-    // Add JavaScript for hover effects
-    svg += '<script><![CDATA[';
-    svg += 'function showTooltip(evt, series, value, time, x, y) {';
-    svg += '  var tooltip = document.getElementById("' + tooltipId + '");';
-    svg += '  var seriesText = document.getElementById("tooltip-series");';
-    svg += '  var valueText = document.getElementById("tooltip-value");';
-    svg += '  seriesText.textContent = "Series: " + series;';
-    svg += '  valueText.textContent = value + " at " + time;';
-    svg += '  tooltip.setAttribute("transform", "translate(" + (x + 10) + "," + (y - 50) + ")");';
-    svg += '  tooltip.setAttribute("visibility", "visible");';
-    svg += '  evt.target.setAttribute("r", "7");';
-    svg += '  evt.target.setAttribute("opacity", "1");';
-    svg += '}';
-    svg += 'function hideTooltip() {';
-    svg += '  var tooltip = document.getElementById("' + tooltipId + '");';
-    svg += '  tooltip.setAttribute("visibility", "hidden");';
-    svg += '  var circles = document.getElementsByTagName("circle");';
-    svg += '  for (var i = 0; i < circles.length; i++) {';
-    svg += '    circles[i].setAttribute("r", "5");';
-    svg += '    circles[i].setAttribute("opacity", "0");';
-    svg += '  }';
-    svg += '}';
-    svg += ']]></script>';
-
-    svg += '<text x="' + (width / 2) + '" y="20" text-anchor="middle" font-size="16" fill="#333">' + title + '</text>';
-    svg += '<text x="10" y="' + (height / 2) + '" text-anchor="middle" transform="rotate(-90,10,' + (height / 2) + ')" font-size="12" fill="#666">' + yLabel + '</text>';
-
-    var legendY = height - 20;
-    svg += '<g font-size="12">';
-    var currentX = 20;
+    // Title
+    svg += '<text x="' + (width / 2) + '" y="25" text-anchor="middle" font-size="16" font-weight="600" fill="' + colors.textPrimary + '">' + title + '</text>';
+    
+    // Y-axis label
+    svg += '<text x="20" y="' + (height / 2) + '" text-anchor="middle" transform="rotate(-90,20,' + (height / 2) + ')" font-size="12" font-weight="500" fill="' + colors.text + '">' + yLabel + '</text>';
+    
+    // Legend
+    var legendY = height - 35;
+    var legendX = margin.left;
+    
+    svg += '<g font-size="11">';
     series.forEach(function(s, index) {
+        if (!s.data || s.data.length === 0) return;
+        
         var lastPoint = s.data[s.data.length - 1];
-        if (lastPoint && !isNaN(lastPoint.value) && lastPoint.value >= 0) {
-            var value = (metricType === 'ram_process') ? lastPoint.value / 1024 / 1024 : lastPoint.value;
-            var date = new Date(lastPoint.timestamp * 1000);
-            var timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            svg += '<circle cx="' + currentX + '" cy="' + (legendY - 5) + '" r="5" fill="' + colors[index % colors.length] + '"/>';
-            svg += '<text x="' + (currentX + 10) + '" y="' + legendY + '" fill="#333">' + s.name + ': ' + valueFormatter(value) + ' at ' + timeStr + '</text>';
-            currentX += 220;
+        if (!lastPoint || isNaN(lastPoint.value) || lastPoint.value < 0) return;
+        
+        var rawValue = (metricType === 'ram_process') ? lastPoint.value / 1024 / 1024 : lastPoint.value;
+        var color = colors.series[index % colors.series.length];
+        
+        // Legend item background
+        var itemWidth = 180;
+        svg += '<rect x="' + legendX + '" y="' + (legendY - 12) + '" width="' + itemWidth + '" height="18" fill="' + colors.gridLines + '" opacity="0.3" rx="3"/>';
+        
+        // Color indicator
+        svg += '<rect x="' + (legendX + 5) + '" y="' + (legendY - 7) + '" width="10" height="10" fill="' + color + '" rx="2"/>';
+        
+        // Series name and value
+        svg += '<text x="' + (legendX + 20) + '" y="' + (legendY + 2) + '" fill="' + colors.textPrimary + '" font-weight="500">' + s.name + ':</text>';
+        svg += '<text x="' + (legendX + 90) + '" y="' + (legendY + 2) + '" fill="' + color + '" font-weight="600">' + valueFormatter(rawValue) + '</text>';
+        
+        legendX += itemWidth + 15;
+        if (legendX > width - 200) {
+            legendX = margin.left;
+            legendY += 25;
         }
     });
     svg += '</g>';
 
+    // Tooltip group
+    svg += '<g id="tooltip" visibility="hidden">';
+    svg += '<rect x="0" y="0" width="160" height="50" fill="#000000" opacity="0.9" rx="6"/>';
+    svg += '<text x="8" y="18" font-size="11" fill="' + colors.text + '" id="tooltip-series"></text>';
+    svg += '<text x="8" y="35" font-size="12" font-weight="600" fill="' + colors.textPrimary + '" id="tooltip-value"></text>';
+    svg += '</g>';
     svg += '</svg>';
+
     return svg;
 }

@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVGD Metrics Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --bg-primary: #0b0c0e;
+            --bg-secondary: #17181a;
+            --bg-panel: #1f2023;
+            --border-color: #2d2e32;
+            --text-primary: #ffffff;
+            --text-secondary: #9fa6b2;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-orange: #f59e0b;
+            --accent-red: #ef4444;
+        }
+
+        .light-theme {
+            --bg-primary: #f7f8fa;
+            --bg-secondary: #ffffff;
+            --bg-panel: #ffffff;
+            --border-color: #e2e8f0;
+            --text-primary: #1a202c;
+            --text-secondary: #4a5568;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        .navbar {
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 1rem;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .panel {
+            background-color: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 1rem;
+            transition: all 0.3s;
+        }
+
+        .panel:hover {
+            border-color: var(--accent-blue);
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .panel-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn {
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .btn:hover {
+            background-color: var(--accent-blue);
+            border-color: var(--accent-blue);
+            color: white;
+        }
+
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        select,
+        input {
+            background-color: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 0.5rem;
+            font-size: 0.875rem;
+            width: 100%;
+        }
+
+        select:focus,
+        input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+        }
+
+        .loading {
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-blue);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .graph-container {
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-secondary);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .graph-container svg {
+            width: 100%;
+            height: auto;
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.active {
+            background-color: var(--accent-green);
+        }
+
+        .status-dot.error {
+            background-color: var(--accent-red);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .icon {
+            width: 16px;
+            height: 16px;
+            display: inline-block;
+        }
+
+        .error-message {
+            color: var(--accent-red);
+            font-size: 0.875rem;
+            padding: 2rem;
+            text-align: center;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            max-width: 500px;
+            width: 90%;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .close-btn {
+            cursor: pointer;
+            padding: 0.25rem;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+
+        .close-btn:hover {
+            background-color: var(--bg-secondary);
+        }
+
+        .form-group {
+            margin-bottom: 1rem;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background-color: rgba(16, 185, 129, 0.2);
+            color: var(--accent-green);
+        }
+
+        .badge-error {
+            background-color: rgba(239, 68, 68, 0.2);
+            color: var(--accent-red);
+        }
+    </style>
+</head>
+
+<body>
+    <nav class="navbar">
+        <div style="display: flex; align-items: center; gap: 2rem;">
+            <h1 style="font-size: 1.25rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+                <svg class="icon" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M3 12v3c0 1.657 3.134 3 7 3s7-1.343 7-3v-3c0 1.657-3.134 3-7 3s-7-1.343-7-3z" />
+                    <path d="M3 7v3c0 1.657 3.134 3 7 3s7-1.343 7-3V7c0 1.657-3.134 3-7 3S3 8.657 3 7z" />
+                    <path d="M17 5c0 1.657-3.134 3-7 3S3 6.657 3 5s3.134-3 7-3 7 1.343 7 3z" />
+                </svg>
+                SVGD Metrics
+            </h1>
+        </div>
+        <div style="display: flex; align-items: center; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary); font-size: 0.75rem;">
+                <span class="status-dot active" id="statusDot"></span>
+                <span id="statusText">Live</span>
+            </div>
+            <select id="timePeriod" class="btn" style="width: auto;">
+                <option value="300">Last 5 min</option>
+                <option value="900">Last 15 min</option>
+                <option value="1800">Last 30 min</option>
+                <option value="3600" selected>Last 1 hour</option>
+                <option value="7200">Last 2 hours</option>
+                <option value="21600">Last 6 hours</option>
+                <option value="86400">Last 24 hours</option>
+                <option value="604800">Last 7 days</option>
+            </select>
+            <button class="btn" id="refreshBtn" title="Refresh now">
+                <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+            </button>
+            <button class="btn" id="addPanelBtn" title="Add Panel">
+                <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+            </button>
+            <button class="btn" id="themeToggle" title="Toggle theme">
+                <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                </svg>
+            </button>
+        </div>
+    </nav>
+
+    <div style="padding: 1.5rem; max-width: 1800px; margin: 0 auto;">
+        <div class="grid-layout" id="panelsContainer"></div>
+
+        <div style="margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border-color); text-align: center; color: var(--text-secondary); font-size: 0.75rem;">
+            <p>Last updated: <span id="lastUpdate">--</span> | Auto-refresh: 10s | Server: <span id="serverAddress">localhost:8080</span></p>
+        </div>
+    </div>
+
+    <div id="addPanelModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Add New Panel</h2>
+                <span class="close-btn" onclick="closeModal('addPanelModal')">✕</span>
+            </div>
+            <form id="addPanelForm">
+                <div class="form-group">
+                    <label class="form-label">Metric Type</label>
+                    <select id="newPanelType">
+                        <option value="cpu">CPU Total</option>
+                        <option value="cpu/process">CPU Process</option>
+                        <option value="ram">RAM Total</option>
+                        <option value="ram/process">RAM Process</option>
+                        <option value="network">Network Interface</option>
+                        <option value="disk">Disk</option>
+                        <option value="postgresql/connections">PostgreSQL Connections</option>
+                    </select>
+                </div>
+                <div class="form-group" id="parameterGroup" style="display: none;">
+                    <label class="form-label" id="parameterLabel">Parameter</label>
+                    <input type="text" id="newPanelParameter" placeholder="e.g., systemd, eth0, sda">
+                </div>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                    <button type="button" class="btn" onclick="closeModal('addPanelModal')">Cancel</button>
+                    <button type="submit" class="btn"
+                        style="background-color: var(--accent-blue); color: white; border-color: var(--accent-blue);">Add Panel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const config = {
+            apiBaseUrl: 'http://localhost:8080',
+            refreshInterval: 10000,
+            panels: []
+        };
+
+        const defaultPanels = [
+            { id: 'cpu', endpoint: 'cpu', title: 'CPU Total Usage' },
+            { id: 'ram', endpoint: 'ram', title: 'RAM Total Usage' },
+            { id: 'network-eth0', endpoint: 'network/eth0', title: 'Network I/O (eth0)' },
+            { id: 'postgresql', endpoint: 'postgresql/connections', title: 'PostgreSQL Connections' }
+        ];
+
+        // Theme configuration for SVG
+        const svgThemes = {
+            dark: {
+                background: '#1f2023',
+                gridLines: '#2d2e32',
+                text: '#9fa6b2',
+                textPrimary: '#ffffff'
+            },
+            light: {
+                background: '#ffffff',
+                gridLines: '#e2e8f0',
+                text: '#4a5568',
+                textPrimary: '#1a202c'
+            }
+        };
+
+        // Apply theme to SVG
+        function applySVGTheme(svgElement, theme) {
+            const colors = svgThemes[theme];
+            const darkColors = svgThemes.dark;
+            const lightColors = svgThemes.light;
+            
+            // Update backgrounds - find by both possible colors
+            const backgrounds = svgElement.querySelectorAll(`rect[fill="${darkColors.background}"], rect[fill="${lightColors.background}"]`);
+            backgrounds.forEach(rect => {
+                // Skip gradient fills and legend backgrounds
+                if (!rect.getAttribute('opacity') && !rect.closest('#tooltip')) {
+                    rect.setAttribute('fill', colors.background);
+                }
+            });
+            
+            // Update grid lines
+            const gridLines = svgElement.querySelectorAll(`line[stroke="${darkColors.gridLines}"], line[stroke="${lightColors.gridLines}"]`);
+            gridLines.forEach(line => line.setAttribute('stroke', colors.gridLines));
+            
+            // Update text colors (secondary)
+            const textElements = svgElement.querySelectorAll(`text[fill="${darkColors.text}"], text[fill="${lightColors.text}"]`);
+            textElements.forEach(text => text.setAttribute('fill', colors.text));
+            
+            // Update text colors (primary)
+            const primaryTextElements = svgElement.querySelectorAll(`text[fill="${darkColors.textPrimary}"], text[fill="${lightColors.textPrimary}"]`);
+            primaryTextElements.forEach(text => text.setAttribute('fill', colors.textPrimary));
+            
+            // Update legend backgrounds with opacity
+            const legendBgs = svgElement.querySelectorAll('rect[opacity="0.3"]');
+            legendBgs.forEach(rect => {
+                const currentFill = rect.getAttribute('fill');
+                if (currentFill === darkColors.gridLines || currentFill === lightColors.gridLines) {
+                    rect.setAttribute('fill', colors.gridLines);
+                }
+            });
+            
+            // Update tooltip
+            const tooltip = svgElement.querySelector('#tooltip');
+            if (tooltip) {
+                const tooltipBg = tooltip.querySelector('rect');
+                if (tooltipBg) {
+                    if (theme === 'dark') {
+                        tooltipBg.setAttribute('fill', '#000000');
+                        tooltipBg.setAttribute('opacity', '0.9');
+                        tooltipBg.setAttribute('stroke', colors.gridLines);
+                    } else {
+                        tooltipBg.setAttribute('fill', '#ffffff');
+                        tooltipBg.setAttribute('opacity', '0.98');
+                        tooltipBg.setAttribute('stroke', colors.gridLines);
+                    }
+                }
+                const tooltipTexts = tooltip.querySelectorAll('text');
+                tooltipTexts.forEach((text, index) => {
+                    if (index === 0) {
+                        text.setAttribute('fill', colors.text);
+                    } else {
+                        text.setAttribute('fill', colors.textPrimary);
+                    }
+                });
+            }
+        }
+
+        // Apply theme to all visible SVGs
+        function applyThemeToAllSVGs() {
+            const theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+            document.querySelectorAll('.graph-container svg').forEach(svg => {
+                applySVGTheme(svg, theme);
+            });
+        }
+
+        // Global tooltip functions
+        window.showTooltip = function(evt, series, value, time, dataX, dataY) {
+            // Find the SVG element and tooltip within it
+            const svgElement = evt.target.closest('svg');
+            if (!svgElement) return;
+            
+            const tooltip = svgElement.querySelector('#tooltip');
+            const seriesText = svgElement.querySelector('#tooltip-series');
+            const valueText = svgElement.querySelector('#tooltip-value');
+            
+            if (!tooltip || !seriesText || !valueText) return;
+            
+            // Get SVG dimensions and viewBox
+            const viewBox = svgElement.viewBox.baseVal;
+            const svgWidth = viewBox.width || 800;
+            const svgHeight = viewBox.height || 450;
+            
+            // Margins from the SVG generation
+            const margin = { top: 45, right: 40, bottom: 80, left: 75 };
+            
+            // Calculate tooltip position relative to graph area
+            let tooltipX = dataX + margin.left + 10;
+            let tooltipY = dataY + margin.top - 60;
+            
+            // Adjust if tooltip goes off right edge
+            if (tooltipX > svgWidth - 170) {
+                tooltipX = dataX + margin.left - 170;
+            }
+            
+            // Adjust if tooltip goes off top edge
+            if (tooltipY < 0) {
+                tooltipY = dataY + margin.top + 15;
+            }
+            
+            // Update tooltip content
+            seriesText.textContent = series;
+            valueText.textContent = value + ' at ' + time;
+            
+            // Position and show tooltip
+            tooltip.setAttribute('transform', 'translate(' + tooltipX + ',' + tooltipY + ')');
+            tooltip.setAttribute('visibility', 'visible');
+            
+            // Highlight the point
+            evt.target.setAttribute('r', '6');
+            evt.target.setAttribute('opacity', '1');
+        };
+
+        window.hideTooltip = function() {
+            // Hide all tooltips in all SVGs
+            document.querySelectorAll('#tooltip').forEach(tooltip => {
+                tooltip.setAttribute('visibility', 'hidden');
+            });
+            
+            // Reset all points
+            document.querySelectorAll('circle[id^="point-"]').forEach(circle => {
+                circle.setAttribute('r', '4');
+                circle.setAttribute('opacity', '0');
+            });
+        };
+
+        async function fetchSVG(endpoint, period) {
+            try {
+                const url = `${config.apiBaseUrl}/${endpoint}?period=${period}`;
+                const response = await fetch(url);
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('image/svg+xml')) {
+                    return { success: true, svg: await response.text() };
+                } else {
+                    const data = await response.json();
+                    return { success: false, error: data.error || 'Unknown error' };
+                }
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+
+        function createPanel(panelConfig) {
+            const panel = document.createElement('div');
+            panel.className = 'panel';
+            panel.id = `panel-${panelConfig.id}`;
+
+            panel.innerHTML = `
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                        ${panelConfig.title}
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <span class="badge badge-success" id="status-${panelConfig.id}" style="display: none;">●</span>
+                        <button class="btn btn-sm" onclick="refreshPanel('${panelConfig.id}')" title="Refresh">
+                            <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                        </button>
+                        <button class="btn btn-sm" onclick="removePanel('${panelConfig.id}')" title="Remove">
+                            <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="graph-container" id="graph-${panelConfig.id}">
+                    <div class="loading"></div>
+                </div>
+            `;
+
+            return panel;
+        }
+
+        async function updatePanel(panelConfig) {
+            const period = document.getElementById('timePeriod').value;
+            const graphContainer = document.getElementById(`graph-${panelConfig.id}`);
+            const statusBadge = document.getElementById(`status-${panelConfig.id}`);
+
+            if (!graphContainer) return;
+
+            graphContainer.innerHTML = '<div class="loading"></div>';
+
+            const result = await fetchSVG(panelConfig.endpoint, period);
+
+            if (result.success) {
+                graphContainer.innerHTML = result.svg;
+                
+                // Apply current theme to the newly loaded SVG
+                const theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+                const svgElement = graphContainer.querySelector('svg');
+                if (svgElement) {
+                    applySVGTheme(svgElement, theme);
+                }
+                
+                if (statusBadge) {
+                    statusBadge.className = 'badge badge-success';
+                    statusBadge.style.display = 'inline-block';
+                }
+                updateStatusIndicator(true);
+            } else {
+                graphContainer.innerHTML = `<div class="error-message">Error: ${result.error}<br><small>Check if svgd-gateway is running on ${config.apiBaseUrl}</small></div>`;
+                if (statusBadge) {
+                    statusBadge.className = 'badge badge-error';
+                    statusBadge.style.display = 'inline-block';
+                }
+                updateStatusIndicator(false);
+            }
+        }
+
+        async function refreshPanel(panelId) {
+            const panel = config.panels.find(p => p.id === panelId);
+            if (panel) await updatePanel(panel);
+        }
+
+        function removePanel(panelId) {
+            const panelElement = document.getElementById(`panel-${panelId}`);
+            if (panelElement) panelElement.remove();
+            config.panels = config.panels.filter(p => p.id !== panelId);
+            savePanelsToStorage();
+        }
+
+        async function updateAllPanels() {
+            for (const panel of config.panels) {
+                await updatePanel(panel);
+            }
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+        }
+
+        function addPanel(panelConfig) {
+            if (config.panels.find(p => p.id === panelConfig.id)) {
+                alert('Panel already exists!');
+                return;
+            }
+
+            config.panels.push(panelConfig);
+            const panelsContainer = document.getElementById('panelsContainer');
+            panelsContainer.appendChild(createPanel(panelConfig));
+
+            updatePanel(panelConfig);
+            savePanelsToStorage();
+        }
+
+        function initializeDashboard() {
+            const savedPanels = localStorage.getItem('svgd-panels');
+            if (savedPanels) {
+                try {
+                    config.panels = JSON.parse(savedPanels);
+                } catch (e) {
+                    config.panels = [...defaultPanels];
+                }
+            } else {
+                config.panels = [...defaultPanels];
+            }
+
+            const panelsContainer = document.getElementById('panelsContainer');
+            panelsContainer.innerHTML = '';
+
+            config.panels.forEach(panelConfig => {
+                panelsContainer.appendChild(createPanel(panelConfig));
+            });
+
+            updateAllPanels();
+        }
+
+        function savePanelsToStorage() {
+            localStorage.setItem('svgd-panels', JSON.stringify(config.panels));
+        }
+
+        function updateStatusIndicator(success) {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+
+            if (success) {
+                statusDot.className = 'status-dot active';
+                statusText.textContent = 'Live';
+            } else {
+                statusDot.className = 'status-dot error';
+                statusText.textContent = 'Error';
+            }
+        }
+
+        function focusPanel(panelId) {
+            const panel = document.getElementById(`panel-${panelId}`);
+            if (panel) {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                panel.style.borderColor = 'var(--accent-blue)';
+                setTimeout(() => { panel.style.borderColor = ''; }, 2000);
+            }
+        }
+
+        function openModal(modalId) {
+            document.getElementById(modalId)?.classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId)?.classList.remove('show');
+        }
+
+        document.getElementById('themeToggle').addEventListener('click', function () {
+            document.body.classList.toggle('light-theme');
+            const theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
+            localStorage.setItem('svgd-theme', theme);
+            
+            // Apply theme to all existing SVGs
+            applyThemeToAllSVGs();
+        });
+
+        document.getElementById('refreshBtn').addEventListener('click', function () {
+            updateAllPanels();
+            const svg = this.querySelector('svg');
+            if (svg) {
+                svg.style.transform = 'rotate(360deg)';
+                svg.style.transition = 'transform 0.5s';
+                setTimeout(() => {
+                    svg.style.transform = '';
+                }, 500);
+            }
+        });
+
+        document.getElementById('timePeriod').addEventListener('change', updateAllPanels);
+        document.getElementById('addPanelBtn').addEventListener('click', () => openModal('addPanelModal'));
+
+        document.getElementById('newPanelType').addEventListener('change', function () {
+            const parameterGroup = document.getElementById('parameterGroup');
+            const parameterLabel = document.getElementById('parameterLabel');
+            const value = this.value;
+
+            if (value === 'cpu/process' || value === 'ram/process') {
+                parameterGroup.style.display = 'block';
+                parameterLabel.textContent = 'Process Name';
+            } else if (value === 'network') {
+                parameterGroup.style.display = 'block';
+                parameterLabel.textContent = 'Interface Name (e.g., eth0)';
+            } else if (value === 'disk') {
+                parameterGroup.style.display = 'block';
+                parameterLabel.textContent = 'Disk Name (e.g., sda)';
+            } else {
+                parameterGroup.style.display = 'none';
+            }
+        });
+
+        document.getElementById('addPanelForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const type = document.getElementById('newPanelType').value;
+            const parameter = document.getElementById('newPanelParameter').value.trim();
+
+            let endpoint = type;
+            let title = type;
+            let id = type.replace(/\//g, '-');
+
+            if (parameter && (type.includes('process') || type === 'network' || type === 'disk')) {
+                endpoint = `${type}/${parameter}`;
+                id = `${id}-${parameter}`;
+                title = `${type} (${parameter})`;
+            }
+
+            addPanel({ id, endpoint, title });
+            closeModal('addPanelModal');
+
+            document.getElementById('addPanelForm').reset();
+            document.getElementById('parameterGroup').style.display = 'none';
+        });
+
+        const savedTheme = localStorage.getItem('svgd-theme');
+        if (savedTheme === 'dark') {
+            // Only apply dark theme if explicitly saved
+            document.body.classList.remove('light-theme');
+        } else {
+            // Default to light theme
+            document.body.classList.add('light-theme');
+        }
+
+        document.addEventListener('keydown', function (e) {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'r') {
+                    e.preventDefault();
+                    updateAllPanels();
+                } else if (e.key === 'n') {
+                    e.preventDefault();
+                    openModal('addPanelModal');
+                }
+            }
+        });
+
+        initializeDashboard();
+        setInterval(updateAllPanels, config.refreshInterval);
+        document.getElementById('serverAddress').textContent = config.apiBaseUrl.replace('http://', '');
+    </script>
+</body>
+
+</html>
