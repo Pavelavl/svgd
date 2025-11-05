@@ -471,9 +471,8 @@
             });
         }
 
-        // Global tooltip functions
+        // ===== Tooltip Functions =====
         window.showTooltip = function(evt, series, value, time, dataX, dataY) {
-            // Find the SVG element and tooltip within it
             const svgElement = evt.target.closest('svg');
             if (!svgElement) return;
             
@@ -483,48 +482,36 @@
             
             if (!tooltip || !seriesText || !valueText) return;
             
-            // Get SVG dimensions and viewBox
             const viewBox = svgElement.viewBox.baseVal;
             const svgWidth = viewBox.width || 800;
-            const svgHeight = viewBox.height || 450;
-            
-            // Margins from the SVG generation
             const margin = { top: 45, right: 40, bottom: 80, left: 75 };
             
-            // Calculate tooltip position relative to graph area
             let tooltipX = dataX + margin.left + 10;
             let tooltipY = dataY + margin.top - 60;
             
-            // Adjust if tooltip goes off right edge
             if (tooltipX > svgWidth - 170) {
                 tooltipX = dataX + margin.left - 170;
             }
             
-            // Adjust if tooltip goes off top edge
             if (tooltipY < 0) {
                 tooltipY = dataY + margin.top + 15;
             }
             
-            // Update tooltip content
             seriesText.textContent = series;
             valueText.textContent = value + ' at ' + time;
             
-            // Position and show tooltip
             tooltip.setAttribute('transform', 'translate(' + tooltipX + ',' + tooltipY + ')');
             tooltip.setAttribute('visibility', 'visible');
             
-            // Highlight the point
             evt.target.setAttribute('r', '6');
             evt.target.setAttribute('opacity', '1');
         };
 
         window.hideTooltip = function() {
-            // Hide all tooltips in all SVGs
             document.querySelectorAll('#tooltip').forEach(tooltip => {
                 tooltip.setAttribute('visibility', 'hidden');
             });
             
-            // Reset all points
             document.querySelectorAll('circle[id^="p-"]').forEach(circle => {
                 circle.setAttribute('r', '4');
                 circle.setAttribute('opacity', '0');

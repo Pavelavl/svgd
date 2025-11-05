@@ -61,26 +61,50 @@
         const error = document.getElementById('error');
 
         // Define tooltip functions
-        function showTooltip(evt, series, value, time, x, y) {
-            const tooltip = document.getElementById('tooltip');
-            const seriesText = document.getElementById('tooltip-series');
-            const valueText = document.getElementById('tooltip-value');
-            seriesText.textContent = `Series: ${series}`;
-            valueText.textContent = `${value} at ${time}`;
-            tooltip.setAttribute('transform', `translate(${x + 10},${y - 50})`);
+        function showTooltip(evt, series, value, time, dataX, dataY) {
+            const svgElement = evt.target.closest('svg');
+            if (!svgElement) return;
+            
+            const tooltip = svgElement.querySelector('#tooltip');
+            const seriesText = svgElement.querySelector('#tooltip-series');
+            const valueText = svgElement.querySelector('#tooltip-value');
+            
+            if (!tooltip || !seriesText || !valueText) return;
+            
+            const viewBox = svgElement.viewBox.baseVal;
+            const svgWidth = viewBox.width || 800;
+            const margin = { top: 45, right: 40, bottom: 80, left: 75 };
+            
+            let tooltipX = dataX + margin.left + 10;
+            let tooltipY = dataY + margin.top - 60;
+            
+            if (tooltipX > svgWidth - 170) {
+                tooltipX = dataX + margin.left - 170;
+            }
+            
+            if (tooltipY < 0) {
+                tooltipY = dataY + margin.top + 15;
+            }
+            
+            seriesText.textContent = series;
+            valueText.textContent = value + ' at ' + time;
+            
+            tooltip.setAttribute('transform', 'translate(' + tooltipX + ',' + tooltipY + ')');
             tooltip.setAttribute('visibility', 'visible');
-            evt.target.setAttribute('r', '7');
+            
+            evt.target.setAttribute('r', '6');
             evt.target.setAttribute('opacity', '1');
         }
 
         function hideTooltip() {
-            const tooltip = document.getElementById('tooltip');
-            const circles = document.querySelectorAll('circle[id^="point-"]');
-            tooltip.setAttribute('visibility', 'hidden');
-            for (let i = 0; i < circles.length; i++) {
-                circles[i].setAttribute('r', '5');
-                circles[i].setAttribute('opacity', '0');
-            }
+            document.querySelectorAll('#tooltip').forEach(tooltip => {
+                tooltip.setAttribute('visibility', 'hidden');
+            });
+            
+            document.querySelectorAll('circle[id^="p-"]').forEach(circle => {
+                circle.setAttribute('r', '4');
+                circle.setAttribute('opacity', '0');
+            });
         }
 
         // Attach event listeners to SVG circles after rendering
