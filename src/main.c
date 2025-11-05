@@ -78,6 +78,24 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
         return -1;
     }
 
+    // Special endpoint for getting metrics configuration
+    if (strcmp(endpoint_str, "_config/metrics") == 0) {
+        char *json = generate_metrics_json(&global_config);
+        if (!json) {
+            resp->status = 1;
+            resp->data = strdup("Failed to generate metrics config");
+            resp->data_len = strlen(resp->data);
+            free(endpoint_str);
+            return -1;
+        }
+        
+        resp->status = 0;
+        resp->data = json;
+        resp->data_len = strlen(json);
+        free(endpoint_str);
+        return 0;
+    }
+
     char* period_str = get_param_value(req->params, "period");
     int period = period_str ? atoi(period_str) : 3600;
     free(period_str);
@@ -175,6 +193,8 @@ int main(int argc, char *argv[]) {
 
     fprintf(stderr, "Starting LSRP server on port %d with %d metrics\n", 
             global_config.tcp_port, global_config.metrics_count);
+    fprintf(stderr, "Special endpoints:\n");
+    fprintf(stderr, "  - _config/metrics: Get list of available metrics\n");
 
     int ret = lsrp_server_start(global_config.tcp_port, handler);
     if (ret < 0) {

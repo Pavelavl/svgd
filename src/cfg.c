@@ -218,3 +218,53 @@ MetricConfig* find_metric_config(Config *config, const char *endpoint_path) {
     
     return NULL;
 }
+
+// Generate JSON list of available metrics
+char* generate_metrics_json(Config *config) {
+    // Calculate required buffer size
+    size_t buffer_size = 1024 + config->metrics_count * 512;
+    char *json = malloc(buffer_size);
+    if (!json) return NULL;
+    
+    size_t offset = 0;
+    offset += snprintf(json + offset, buffer_size - offset, 
+                      "{\"version\":\"1.0\",\"metrics\":[");
+    
+    for (int i = 0; i < config->metrics_count; i++) {
+        MetricConfig *m = &config->metrics[i];
+        
+        if (i > 0) {
+            offset += snprintf(json + offset, buffer_size - offset, ",");
+        }
+        
+        offset += snprintf(json + offset, buffer_size - offset,
+            "{\"endpoint\":\"%s\",\"requires_param\":%s",
+            m->endpoint, m->requires_param ? "true" : "false");
+        
+        if (m->requires_param) {
+            offset += snprintf(json + offset, buffer_size - offset,
+                ",\"param_name\":\"%s\"", m->param_name);
+        }
+        
+        offset += snprintf(json + offset, buffer_size - offset,
+            ",\"title\":\"%s\",\"y_label\":\"%s\",\"is_percentage\":%s",
+            m->title, m->y_label, m->is_percentage ? "true" : "false");
+        
+        offset += snprintf(json + offset, buffer_size - offset, "}");
+        
+        if (offset >= buffer_size - 512) {
+            // Buffer too small, reallocate
+            buffer_size *= 2;
+            char *new_json = realloc(json, buffer_size);
+            if (!new_json) {
+                free(json);
+                return NULL;
+            }
+            json = new_json;
+        }
+    }
+    
+    offset += snprintf(json + offset, buffer_size - offset, "]}");
+    
+    return json;
+}

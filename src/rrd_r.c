@@ -304,7 +304,6 @@ void free_metric_data(MetricData *data) {
     free(data->series_names);
     free(data->series_data);
     free(data->series_counts);
-    free(data->metric_type);
     free(data->param1);
     free(data);
 }
@@ -348,8 +347,6 @@ char *generate_svg(duk_context *ctx, const char *script_path, MetricData *data) 
 
     // Build options object with metric configuration
     duk_push_object(ctx);
-    duk_push_string(ctx, data->metric_type ? data->metric_type : "unknown");
-    duk_put_prop_string(ctx, -2, "metricType");
     if (data->param1 && *data->param1) {
         duk_push_string(ctx, data->param1);
         duk_put_prop_string(ctx, -2, "param1");

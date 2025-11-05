@@ -46,4 +46,7 @@ void free_config(Config *config);
 // Find metric by endpoint and optional parameter
 MetricConfig* find_metric_config(Config *config, const char *endpoint_path);
 
+// Generate JSON list of available metrics
+char* generate_metrics_json(Config *config);
+
 #endif
