@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <errno.h>
 #include "../lsrp/lsrp_client.h"
 
 #define DEFAULT_SVGD_HOST "127.0.0.1"
@@ -67,7 +68,7 @@ static char *parse_get_request(const char *request, size_t *params_len) {
         free(params);
         return NULL;
     }
-    fprintf(stderr, "Parsed params: %s\n", params); // Debugging
+    fprintf(stderr, "Parsed params: %s\n", params);
     return params;
 }
 
@@ -97,6 +98,26 @@ static void send_response(int client_sock, const char *content_type, const char 
                               content_type, data_len);
     send(client_sock, header, header_len, 0);
     send(client_sock, data, data_len, 0);
+}
+
+// Handle CORS preflight request
+static void handle_options(int client_sock) {
+    const char *response = 
+        "HTTP/1.1 200 OK\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
+        "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+        "Access-Control-Allow-Headers: Content-Type\r\n"
+        "Content-Length: 0\r\n"
+        "Connection: close\r\n\r\n";
+    send(client_sock, response, strlen(response), 0);
+}
+
+// Determine content type based on endpoint
+static const char* get_content_type(const char *endpoint) {
+    if (strncmp(endpoint, "_config/", 8) == 0) {
+        return "application/json";
+    }
+    return "image/svg+xml";
 }
 
 int main(int argc, char *argv[]) {
@@ -137,6 +158,9 @@ int main(int argc, char *argv[]) {
 
     printf("svgd-gate running on port %d, forwarding to svgd at %s:%d\n",
            global_config.http_port, global_config.svgd_host, global_config.svgd_port);
+    printf("Available endpoints:\n");
+    printf("  - /_config/metrics: Get list of available metrics (JSON)\n");
+    printf("  - /<endpoint>?period=X: Get SVG graph for metric\n");
 
     // Main loop
     char buffer[MAX_REQUEST_LEN];
@@ -157,6 +181,13 @@ int main(int argc, char *argv[]) {
         }
         buffer[bytes_read] = '\0';
 
+        // Handle CORS preflight
+        if (strncmp(buffer, "OPTIONS ", 8) == 0) {
+            handle_options(client_sock);
+            close(client_sock);
+            continue;
+        }
+
         // Parse request
         size_t params_len;
         char *params = parse_get_request(buffer, &params_len);
@@ -164,6 +195,19 @@ int main(int argc, char *argv[]) {
             send_error(client_sock, "Invalid or missing query parameters");
             close(client_sock);
             continue;
+        }
+
+        // Extract endpoint from params for content type determination
+        char endpoint[256] = "";
+        const char *endpoint_param = strstr(params, "endpoint=");
+        if (endpoint_param) {
+            endpoint_param += 9; // Skip "endpoint="
+            const char *end = strchr(endpoint_param, '&');
+            size_t len = end ? (end - endpoint_param) : strlen(endpoint_param);
+            if (len < sizeof(endpoint)) {
+                strncpy(endpoint, endpoint_param, len);
+                endpoint[len] = '\0';
+            }
         }
 
         // Send LSRP request
@@ -177,9 +221,10 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        // Send response
+        // Send response with appropriate content type
         if (lsrp_resp.status == 0) {
-            send_response(client_sock, "image/svg+xml", lsrp_resp.data, lsrp_resp.data_len);
+            const char *content_type = get_content_type(endpoint);
+            send_response(client_sock, content_type, lsrp_resp.data, lsrp_resp.data_len);
         } else {
             send_error(client_sock, lsrp_resp.data);
         }

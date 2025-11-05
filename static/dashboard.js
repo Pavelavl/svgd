@@ -5,14 +5,13 @@ const config = {
     panels: [],
     customTimeRange: null,
     currentPeriod: 3600,
-    dashboardName: 'System Monitoring Dashboard'
+    dashboardName: 'System Monitoring Dashboard',
+    availableMetrics: [] // Will be loaded dynamically
 };
 
 const defaultPanels = [
     { id: 'cpu', endpoint: 'cpu', title: 'CPU Total Usage' },
-    { id: 'ram', endpoint: 'ram', title: 'RAM Total Usage' },
-    { id: 'network-eth0', endpoint: 'network/eth0', title: 'Network I/O (eth0)' },
-    { id: 'postgresql', endpoint: 'postgresql/connections', title: 'PostgreSQL Connections' }
+    { id: 'ram', endpoint: 'ram', title: 'RAM Total Usage' }
 ];
 
 // Theme configuration for SVG
@@ -166,6 +165,39 @@ window.hideTooltip = function() {
 };
 
 // ===== API Functions =====
+async function fetchAvailableMetrics() {
+    try {
+        const url = `${config.apiBaseUrl}/_config/metrics`;
+        console.log('Fetching metrics from:', url);
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log('Loaded metrics:', data);
+        
+        if (data.metrics && Array.isArray(data.metrics)) {
+            config.availableMetrics = data.metrics;
+            populateMetricsDropdown();
+            return true;
+        } else {
+            throw new Error('Invalid metrics format');
+        }
+    } catch (error) {
+        console.error('Failed to load metrics:', error);
+        showToast('Failed to load metrics configuration. Using defaults.', 'error', 5000);
+        // Fallback to default metrics
+        config.availableMetrics = [
+            { endpoint: 'cpu', metric_type: 'cpu_total', requires_param: false, title: 'CPU Total Usage' },
+            { endpoint: 'ram', metric_type: 'ram_total', requires_param: false, title: 'RAM Total Usage' }
+        ];
+        populateMetricsDropdown();
+        return false;
+    }
+}
+
 async function fetchSVG(endpoint, period) {
     try {
         const url = `${config.apiBaseUrl}/${endpoint}?period=${period}`;
@@ -185,6 +217,48 @@ async function fetchSVG(endpoint, period) {
     } catch (error) {
         return { success: false, error: error.message };
     }
+}
+
+// ===== UI Functions =====
+function populateMetricsDropdown() {
+    const select = document.getElementById('newPanelType');
+    if (!select) return;
+    
+    // Clear existing options
+    select.innerHTML = '';
+    
+    // Group metrics by category for better UX
+    const categories = {};
+    config.availableMetrics.forEach(metric => {
+        const category = metric.endpoint.split('/')[0] || 'Other';
+        if (!categories[category]) {
+            categories[category] = [];
+        }
+        categories[category].push(metric);
+    });
+    
+    // Add options grouped by category
+    Object.keys(categories).sort().forEach(category => {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = category.charAt(0).toUpperCase() + category.slice(1);
+        
+        categories[category].forEach(metric => {
+            const option = document.createElement('option');
+            option.value = metric.endpoint;
+            option.textContent = metric.title || metric.endpoint;
+            option.dataset.requiresParam = metric.requires_param;
+            option.dataset.paramName = metric.param_name || '';
+            optgroup.appendChild(option);
+        });
+        
+        select.appendChild(optgroup);
+    });
+    
+    console.log('Populated metrics dropdown with', config.availableMetrics.length, 'metrics');
+}
+
+function getMetricInfo(endpoint) {
+    return config.availableMetrics.find(m => m.endpoint === endpoint);
 }
 
 // ===== Panel Management =====
@@ -346,7 +420,10 @@ function exportPanel(panelId, format) {
 }
 
 // ===== Dashboard Management =====
-function initializeDashboard() {
+async function initializeDashboard() {
+    // First load available metrics
+    await fetchAvailableMetrics();
+    
     const savedPanels = localStorage.getItem('svgd-panels');
     const savedConfig = localStorage.getItem('svgd-config');
     
@@ -457,11 +534,9 @@ function takeSnapshot() {
     
     setTimeout(() => {
         try {
-            // Get current timestamp
             const timestamp = new Date();
             const timestampStr = timestamp.toISOString().replace(/[:.]/g, '-').slice(0, -5);
             
-            // Collect all SVGs
             const panels = [];
             config.panels.forEach(panel => {
                 const graphContainer = document.getElementById(`graph-${panel.id}`);
@@ -482,7 +557,6 @@ function takeSnapshot() {
                 return;
             }
             
-            // Create HTML snapshot
             const theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
             const snapshotHTML = `<!DOCTYPE html>
 <html lang="en">
@@ -491,19 +565,13 @@ function takeSnapshot() {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard Snapshot - ${timestamp.toLocaleString()}</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             background: ${theme === 'dark' ? '#0b0c0e' : '#f7f8fa'};
             color: ${theme === 'dark' ? '#ffffff' : '#1a202c'};
             padding: 2rem;
         }
-        
         .header {
             max-width: 1800px;
             margin: 0 auto 2rem;
@@ -512,26 +580,8 @@ function takeSnapshot() {
             border: 1px solid ${theme === 'dark' ? '#2d2e32' : '#e2e8f0'};
             border-radius: 8px;
         }
-        
-        .header h1 {
-            font-size: 1.5rem;
-            margin-bottom: 0.5rem;
-        }
-        
-        .header .meta {
-            font-size: 0.875rem;
-            color: ${theme === 'dark' ? '#9fa6b2' : '#4a5568'};
-        }
-        
-        .info-box {
-            background: ${theme === 'dark' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)'};
-            border: 1px solid ${theme === 'dark' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.15)'};
-            border-radius: 6px;
-            padding: 1rem;
-            margin-top: 1rem;
-            font-size: 0.875rem;
-        }
-        
+        .header h1 { font-size: 1.5rem; margin-bottom: 0.5rem; }
+        .header .meta { font-size: 0.875rem; color: ${theme === 'dark' ? '#9fa6b2' : '#4a5568'}; }
         .panels {
             max-width: 1800px;
             margin: 0 auto;
@@ -539,15 +589,12 @@ function takeSnapshot() {
             grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
             gap: 1.5rem;
         }
-        
         .panel {
             background: ${theme === 'dark' ? '#1f2023' : '#ffffff'};
             border: 1px solid ${theme === 'dark' ? '#2d2e32' : '#e2e8f0'};
             border-radius: 8px;
             padding: 1.5rem;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, ${theme === 'dark' ? '0.3' : '0.1'});
         }
-        
         .panel-title {
             font-size: 1rem;
             font-weight: 600;
@@ -555,46 +602,17 @@ function takeSnapshot() {
             padding-bottom: 0.75rem;
             border-bottom: 1px solid ${theme === 'dark' ? '#2d2e32' : '#e2e8f0'};
         }
-        
-        .panel svg {
-            width: 100%;
-            height: auto;
-        }
-        
-        .footer {
-            max-width: 1800px;
-            margin: 2rem auto 0;
-            text-align: center;
-            color: ${theme === 'dark' ? '#9fa6b2' : '#4a5568'};
-            font-size: 0.75rem;
-            padding-top: 1rem;
-            border-top: 1px solid ${theme === 'dark' ? '#2d2e32' : '#e2e8f0'};
-        }
-        
-        @media print {
-            body {
-                background: white;
-            }
-            .panel {
-                page-break-inside: avoid;
-            }
-        }
+        .panel svg { width: 100%; height: auto; }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>📊 ${config.dashboardName}</h1>
         <div class="meta">
-            <div><strong>Snapshot taken:</strong> ${timestamp.toLocaleString()}</div>
-            <div><strong>Time range:</strong> ${document.getElementById('currentTimeRange').textContent}</div>
-            <div><strong>Number of panels:</strong> ${panels.length}</div>
-        </div>
-        <div class="info-box">
-            ℹ️ This is a static snapshot of the dashboard. Data is frozen at the time of capture.
-            To view live data, use the main dashboard application.
+            <div><strong>Snapshot:</strong> ${timestamp.toLocaleString()}</div>
+            <div><strong>Panels:</strong> ${panels.length}</div>
         </div>
     </div>
-    
     <div class="panels">
         ${panels.map(p => `
             <div class="panel">
@@ -603,15 +621,9 @@ function takeSnapshot() {
             </div>
         `).join('')}
     </div>
-    
-    <div class="footer">
-        <p>Generated by SVGD Metrics Dashboard</p>
-        <p>API Server: ${config.apiBaseUrl}</p>
-    </div>
 </body>
 </html>`;
             
-            // Download the snapshot
             const blob = new Blob([snapshotHTML], { type: 'text/html' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -631,7 +643,7 @@ function takeSnapshot() {
 }
 
 function resetDashboard() {
-    if (confirm('Are you sure you want to reset the dashboard to defaults? This will remove all panels and settings.')) {
+    if (confirm('Are you sure you want to reset the dashboard to defaults?')) {
         localStorage.clear();
         location.reload();
     }
@@ -687,7 +699,6 @@ function applyCustomTimeRange() {
     if (from && to) {
         showToast('Custom time range applied', 'success');
         closeModal('customTimeModal');
-        // Implement custom time range logic here
     } else {
         showToast('Please select both start and end times', 'error');
     }
@@ -737,9 +748,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (svg) {
             svg.style.transform = 'rotate(360deg)';
             svg.style.transition = 'transform 0.5s';
-            setTimeout(() => {
-                svg.style.transform = '';
-            }, 500);
+            setTimeout(() => { svg.style.transform = ''; }, 500);
         }
     });
 
@@ -786,21 +795,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
-    // Add panel form
+    // Add panel form - dynamic parameter handling
     document.getElementById('newPanelType').addEventListener('change', function () {
         const parameterGroup = document.getElementById('parameterGroup');
         const parameterLabel = document.getElementById('parameterLabel');
-        const value = this.value;
+        const selectedOption = this.options[this.selectedIndex];
+        const requiresParam = selectedOption.dataset.requiresParam === 'true';
+        const paramName = selectedOption.dataset.paramName;
 
-        if (value === 'cpu/process' || value === 'ram/process') {
+        if (requiresParam) {
             parameterGroup.style.display = 'block';
-            parameterLabel.textContent = 'Process Name';
-        } else if (value === 'network') {
-            parameterGroup.style.display = 'block';
-            parameterLabel.textContent = 'Interface Name (e.g., eth0)';
-        } else if (value === 'disk') {
-            parameterGroup.style.display = 'block';
-            parameterLabel.textContent = 'Disk Name (e.g., sda)';
+            parameterLabel.textContent = paramName || 'Parameter';
         } else {
             parameterGroup.style.display = 'none';
         }
@@ -810,18 +815,20 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
 
         const type = document.getElementById('newPanelType').value;
+        const selectedOption = document.querySelector('#newPanelType option:checked');
+        const requiresParam = selectedOption.dataset.requiresParam === 'true';
         const parameter = document.getElementById('newPanelParameter').value.trim();
         const customTitle = document.getElementById('newPanelTitle').value.trim();
 
         let endpoint = type;
-        let title = customTitle || type;
+        let title = customTitle || selectedOption.textContent;
         let id = type.replace(/\//g, '-');
 
-        if (parameter && (type.includes('process') || type === 'network' || type === 'disk')) {
+        if (requiresParam && parameter) {
             endpoint = `${type}/${parameter}`;
             id = `${id}-${parameter}`;
             if (!customTitle) {
-                title = `${type} (${parameter})`;
+                title = `${selectedOption.textContent} (${parameter})`;
             }
         }
 
@@ -836,6 +843,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('apiBaseUrl').addEventListener('change', function() {
         config.apiBaseUrl = this.value;
         saveConfigToStorage();
+        fetchAvailableMetrics();
     });
 
     document.getElementById('refreshInterval').addEventListener('change', function() {
@@ -856,7 +864,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveConfigToStorage();
     });
 
-    // Keyboard shortcuts - only Escape for closing modals
+    // Keyboard shortcuts
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {
             document.querySelectorAll('.modal.show').forEach(modal => {
@@ -879,9 +887,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load saved theme
     const savedTheme = localStorage.getItem('svgd-theme');
-    if (savedTheme === 'dark') {
-        document.body.classList.remove('light-theme');
-    } else {
+    if (savedTheme === 'light') {
         document.body.classList.add('light-theme');
     }
 

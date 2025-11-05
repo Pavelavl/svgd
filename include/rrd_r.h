@@ -6,6 +6,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <rrd_client.h>
+#include "cfg.h"
 
 #define MAX_POINTS 1000
 
@@ -21,9 +22,13 @@ typedef struct {
     int *series_counts;
     char *metric_type;
     char *param1;
+    
+    // Pointer to metric configuration (for JS generation)
+    MetricConfig *metric_config;
 } MetricData;
 
-MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *metric_type, char *param1);
+MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, 
+                              time_t start, char *param1);
 char* generate_svg(duk_context *ctx, const char *script_path, MetricData *data);
 void free_metric_data(MetricData *data);
 int load_js_file(duk_context *ctx, const char *filename);
