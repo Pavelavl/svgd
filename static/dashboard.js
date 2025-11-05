@@ -801,6 +801,9 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (value === 'disk') {
             parameterGroup.style.display = 'block';
             parameterLabel.textContent = 'Disk Name (e.g., sda)';
+        } else if (value === 'filesystem') {
+            parameterGroup.style.display = 'block';
+            parameterLabel.textContent = 'FS (e.g., e, c...)';
         } else {
             parameterGroup.style.display = 'none';
         }
@@ -817,7 +820,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let title = customTitle || type;
         let id = type.replace(/\//g, '-');
 
-        if (parameter && (type.includes('process') || type === 'network' || type === 'disk')) {
+        if (parameter && (type.includes('process') || type === 'network' || type === 'disk' || type === 'filesystem')) {
             endpoint = `${type}/${parameter}`;
             id = `${id}-${parameter}`;
             if (!customTitle) {

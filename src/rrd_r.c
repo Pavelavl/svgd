@@ -1,4 +1,5 @@
 #include "../include/rrd_r.h"
+#include "../include/cfg.h"
 
 // Static cache for JavaScript file contents
 static char *js_cache = NULL;
@@ -197,7 +198,7 @@ static unsigned long select_optimal_step(const char *filename, time_t start, tim
     return optimal_step;
 }
 
-MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *metric_type, char *param1) {
+MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *param1) {
     int use_rrdcached = (rrdcached_addr != NULL && strlen(rrdcached_addr) > 0);
     int rrdcached_connected = 0;
 
@@ -206,7 +207,7 @@ MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, 
             use_rrdcached = 0;
         } else if (rrdc_connect(rrdcached_addr) == 0) {
             rrdcached_connected = 1;
-            rrdc_flush(filename); // Ignore flush errors to avoid blocking
+            rrdc_flush(filename);
         } else {
             use_rrdcached = 0;
         }
@@ -247,8 +248,8 @@ MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, 
     metric_data->series_names = malloc(metric_data->series_count * sizeof(char*));
     metric_data->series_data = malloc(metric_data->series_count * sizeof(DataPoint*));
     metric_data->series_counts = malloc(metric_data->series_count * sizeof(int));
-    metric_data->metric_type = strdup(metric_type ? metric_type : "unknown");
     metric_data->param1 = strdup(param1 ? param1 : "");
+    metric_data->metric_config = NULL; // Will be set by caller
 
     if (is_ps_cputime) {
         metric_data->series_names[0] = strdup("total");
@@ -324,6 +325,7 @@ char *generate_svg(duk_context *ctx, const char *script_path, MetricData *data) 
     }
     duk_remove(ctx, -2);
 
+    // Build series array
     duk_push_array(ctx);
     int array_idx = 0;
     for (int s = 0; s < data->series_count; s++) {
@@ -344,6 +346,7 @@ char *generate_svg(duk_context *ctx, const char *script_path, MetricData *data) 
         duk_put_prop_index(ctx, -2, array_idx++);
     }
 
+    // Build options object with metric configuration
     duk_push_object(ctx);
     duk_push_string(ctx, data->metric_type ? data->metric_type : "unknown");
     duk_put_prop_string(ctx, -2, "metricType");
@@ -352,7 +355,31 @@ char *generate_svg(duk_context *ctx, const char *script_path, MetricData *data) 
         duk_put_prop_string(ctx, -2, "param1");
     }
 
+    // Pass metric configuration if available
+    if (data->metric_config) {
+        MetricConfig *cfg = data->metric_config;
+        
+        // Add display configuration
+        duk_push_string(ctx, cfg->title);
+        duk_put_prop_string(ctx, -2, "title");
+        duk_push_string(ctx, cfg->y_label);
+        duk_put_prop_string(ctx, -2, "yLabel");
+        duk_push_boolean(ctx, cfg->is_percentage);
+        duk_put_prop_string(ctx, -2, "isPercentage");
+        
+        // Add transformation configuration
+        duk_push_string(ctx, cfg->transform_type);
+        duk_put_prop_string(ctx, -2, "transformType");
+        duk_push_number(ctx, cfg->value_multiplier);
+        duk_put_prop_string(ctx, -2, "valueMultiplier");
+        duk_push_number(ctx, cfg->transform_divisor);
+        duk_put_prop_string(ctx, -2, "transformDivisor");
+        duk_push_string(ctx, cfg->value_format);
+        duk_put_prop_string(ctx, -2, "valueFormat");
+    }
+
     if (duk_pcall(ctx, 2) != 0) {
+        fprintf(stderr, "JS Error: %s\n", duk_safe_to_string(ctx, -1));
         duk_pop(ctx);
         return NULL;
     }

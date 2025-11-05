@@ -10,7 +10,7 @@ function generateSVG(series, options) {
     var graphWidth = width - margin.left - margin.right;
     var graphHeight = height - margin.top - margin.bottom;
 
-    // Light theme colors (default)
+    // Light theme colors
     var colors = {
         background: '#ffffff',
         gridLines: '#e2e8f0',
@@ -20,7 +20,6 @@ function generateSVG(series, options) {
         series: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
     };
 
-    // Use array for building SVG - MUCH faster than string concatenation
     var svg = [];
     svg.push('<svg viewBox="0 0 ', width, ' ', height, '" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; width: 100%; height: 100%;" preserveAspectRatio="xMidYMid meet">');
     svg.push('<rect width="100%" height="100%" fill="', colors.background, '"/>');
@@ -30,10 +29,22 @@ function generateSVG(series, options) {
         return svg.join('');
     }
 
-    var metricType = options.metricType || 'unknown';
+    // Extract configuration from options (with fallbacks)
     var param1 = options.param1 || '';
-    
-    // Collect all data points in single pass
+    var title = options.title || 'Metric';
+    var yLabel = options.yLabel || 'Value';
+    var isPercentage = options.isPercentage || false;
+    var transformType = options.transformType || 'none';
+    var valueMultiplier = options.valueMultiplier || 1.0;
+    var transformDivisor = options.transformDivisor || 1.0;
+    var valueFormat = options.valueFormat || '%.2f';
+
+    // Replace %s in title with param1
+    if (title.indexOf('%s') !== -1 && param1) {
+        title = title.replace('%s', param1);
+    }
+
+    // Collect all data points
     var allData = [];
     var seriesCount = series.length;
     for (var si = 0; si < seriesCount; si++) {
@@ -57,80 +68,37 @@ function generateSVG(series, options) {
         return svg.join('');
     }
 
-    // Pre-calculate metric configuration
-    var title = '';
-    var yLabel = '';
-    var isPercentage = false;
-    var valueMultiplier = 1;
+    // Create value formatter from format string
     var valueFormatter;
-    var needsTransform = false;
-    var transformDivisor = 1;
-
-    switch (metricType) {
-        case 'cpu_total':
-            title = 'CPU Utilization';
-            yLabel = 'Usage (%)';
-            isPercentage = true;
-            needsTransform = true;
-            valueFormatter = function(v) { return v.toFixed(1); };
-            break;
-        case 'cpu_process':
-            title = 'CPU Time for ' + param1;
-            yLabel = 'CPU Time (seconds)';
-            valueFormatter = function(v) { return v.toFixed(2); };
-            break;
-        case 'ram_total':
-            title = 'RAM Utilization';
-            yLabel = 'Usage (%)';
-            isPercentage = true;
-            valueFormatter = function(v) { return v.toFixed(1); };
-            break;
-        case 'ram_process':
-            title = 'Memory Usage for ' + param1;
-            yLabel = 'Memory (MB)';
-            transformDivisor = 1024*1024;
-            needsTransform = true;
-            valueFormatter = function(v) { return v.toFixed(1); };
-            break;
-        case 'network':
-            title = 'Network Traffic for ' + param1;
-            yLabel = 'Traffic (B/s)';
-
-            valueFormatter = function (value) {
-                return value.toFixed(2);
-            };
-            break;
-        case 'disk':
-            title = 'Disk Operations for ' + param1;
-            yLabel = 'Operations/s';
-            valueFormatter = function(v) { return v.toFixed(1); };
-            break;
-        case 'postgresql_connections':
-            title = 'PostgreSQL Connections';
-            yLabel = 'Connections';
-            valueFormatter = function(v) { return Math.round(v).toString(); };
-            break;
-        default:
-            title = 'Metric';
-            yLabel = 'Value';
-            valueFormatter = function(v) { return v.toFixed(2); };
+    if (valueFormat === '%d' || valueFormat === '%.0f') {
+        valueFormatter = function(v) { return Math.round(v).toString(); };
+    } else if (valueFormat === '%.1f') {
+        valueFormatter = function(v) { return v.toFixed(1); };
+    } else if (valueFormat === '%.2f') {
+        valueFormatter = function(v) { return v.toFixed(2); };
+    } else {
+        valueFormatter = function(v) { return v.toFixed(2); };
     }
 
-    // Transform data if needed (single pass)
+    // Apply transformations based on transformType
+    var needsTransform = transformType !== 'none';
+    
     if (needsTransform) {
         var allDataLen = allData.length;
-        if (metricType === 'cpu_total') {
+        if (transformType === 'multiply') {
             for (var i = 0; i < allDataLen; i++) {
                 allData[i].value *= valueMultiplier;
             }
-        } else if (metricType === 'ram_process') {
+        } else if (transformType === 'divide') {
             for (var i = 0; i < allDataLen; i++) {
                 allData[i].value /= transformDivisor;
             }
+        } else if (transformType === 'ps_cputime_sum') {
+            // Special handling is done in C code
         }
     }
 
-    // Calculate value range and time range in single pass
+    // Calculate value range and time range
     var minVal, maxVal, minTime, maxTime;
     if (isPercentage) {
         minVal = 0;
@@ -184,20 +152,19 @@ function generateSVG(series, options) {
     // X-axis grid and labels
     var xSteps = Math.min(8, Math.max(4, Math.floor(graphWidth / 100)));
     
-    // Pre-calculate time formatting function based on range
     var formatTime;
-    if (timeRange > 604800) { // > 7 days
+    if (timeRange > 604800) {
         formatTime = function(ts) {
             var d = new Date(ts * 1000);
             return (d.getMonth() + 1) + '/' + d.getDate();
         };
-    } else if (timeRange > 86400) { // > 1 day
+    } else if (timeRange > 86400) {
         formatTime = function(ts) {
             var d = new Date(ts * 1000);
             return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + 
                    ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
         };
-    } else if (timeRange > 3600) { // > 1 hour
+    } else if (timeRange > 3600) {
         formatTime = function(ts) {
             var d = new Date(ts * 1000);
             return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
@@ -231,14 +198,21 @@ function generateSVG(series, options) {
         var color = colors.series[si % colors.series.length];
         var validData = [];
         
-        // Filter valid data once
+        // Filter and transform valid data
         var dataLen = s.data.length;
         for (var di = 0; di < dataLen; di++) {
             var d = s.data[di];
             var val = d.value;
+            
+            // Apply transformations
             if (needsTransform) {
-                val = metricType === 'cpu_total' ? val * valueMultiplier : val / transformDivisor;
+                if (transformType === 'multiply') {
+                    val = val * valueMultiplier;
+                } else if (transformType === 'divide') {
+                    val = val / transformDivisor;
+                }
             }
+            
             if (!isNaN(val) && val >= 0) {
                 validData.push({ timestamp: d.timestamp, value: val });
             }
@@ -246,7 +220,6 @@ function generateSVG(series, options) {
 
         if (validData.length === 0) continue;
 
-        // Pre-calculate escaped name once
         var escapedName = s.name.replace(/[^a-zA-Z0-9]/g, '_');
         var escapedNameJS = s.name.replace(/'/g, "\\'");
 
@@ -338,7 +311,11 @@ function generateSVG(series, options) {
         
         var rawValue = lastPoint.value;
         if (needsTransform) {
-            rawValue = metricType === 'cpu_total' ? rawValue * valueMultiplier : rawValue / transformDivisor;
+            if (transformType === 'multiply') {
+                rawValue = rawValue * valueMultiplier;
+            } else if (transformType === 'divide') {
+                rawValue = rawValue / transformDivisor;
+            }
         }
         
         var color = colors.series[si % colors.series.length];
