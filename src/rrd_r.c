@@ -198,7 +198,7 @@ static unsigned long select_optimal_step(const char *filename, time_t start, tim
     return optimal_step;
 }
 
-MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *param1) {
+MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *param1, MetricConfig *metric_config) {
     int use_rrdcached = (rrdcached_addr != NULL && strlen(rrdcached_addr) > 0);
     int rrdcached_connected = 0;
 
@@ -220,7 +220,7 @@ MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, 
     rrd_value_t *data = NULL;
 
     int status = use_rrdcached && rrdcached_connected ? rrdc_fetch(filename, "AVERAGE", &start, &end, &step, &ds_cnt, &ds_names, &data) :
-                                                       rrd_fetch_r(filename, "AVERAGE", &start, &end, &step, &ds_cnt, &ds_names, &data);
+                                                        rrd_fetch_r(filename, "AVERAGE", &start, &end, &step, &ds_cnt, &ds_names, &data);
 
     if (status != 0) {
         if (rrdcached_connected) rrdc_disconnect();
@@ -243,15 +243,15 @@ MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, 
         return NULL;
     }
 
-    int is_ps_cputime = strstr(filename, "ps_cputime.rrd") != NULL;
-    metric_data->series_count = is_ps_cputime ? 1 : ds_cnt;
+    int do_sum = metric_config && strcmp(metric_config->transform_type, "sum") == 0;
+    metric_data->series_count = do_sum ? 1 : ds_cnt;
     metric_data->series_names = malloc(metric_data->series_count * sizeof(char*));
     metric_data->series_data = malloc(metric_data->series_count * sizeof(DataPoint*));
     metric_data->series_counts = malloc(metric_data->series_count * sizeof(int));
     metric_data->param1 = strdup(param1 ? param1 : "");
-    metric_data->metric_config = NULL; // Will be set by caller
+    metric_data->metric_config = metric_config;
 
-    if (is_ps_cputime) {
+    if (do_sum) {
         metric_data->series_names[0] = strdup("total");
         metric_data->series_data[0] = malloc(num_points * sizeof(DataPoint));
         metric_data->series_counts[0] = 0;

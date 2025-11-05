@@ -88,7 +88,7 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
             free(endpoint_str);
             return -1;
         }
-        
+       
         resp->status = 0;
         resp->data = json;
         resp->data_len = strlen(json);
@@ -118,7 +118,7 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
         param = extract_param_from_path(endpoint_str, metric->endpoint);
         if (!param || strlen(param) == 0) {
             char error_msg[256];
-            snprintf(error_msg, sizeof(error_msg), "Endpoint '%s' requires parameter '%s'", 
+            snprintf(error_msg, sizeof(error_msg), "Endpoint '%s' requires parameter '%s'",
                     metric->endpoint, metric->param_name);
             resp->status = 1;
             resp->data = strdup(error_msg);
@@ -131,16 +131,16 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
 
     // Build RRD file path
     char rrd_path[512] = {0};
-    build_rrd_path(rrd_path, sizeof(rrd_path), global_config.rrd_base_path, 
+    build_rrd_path(rrd_path, sizeof(rrd_path), global_config.rrd_base_path,
                    metric->rrd_path, param);
 
-    fprintf(stderr, "Fetching data for endpoint=%s, RRD=%s\n", 
+    fprintf(stderr, "Fetching data for endpoint=%s, RRD=%s\n",
             endpoint_str, rrd_path);
 
     time_t now = time(NULL);
-    MetricData *data = fetch_metric_data(global_config.rrdcached_addr, rrd_path, 
-                                        now - period, param);
-    
+    MetricData *data = fetch_metric_data(global_config.rrdcached_addr, rrd_path,
+                                        now - period, param, metric);
+   
     free(endpoint_str);
 
     if (!data) {
@@ -155,9 +155,9 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
 
     // Pass metric configuration to SVG generator
     data->metric_config = metric;
-    
+
     char *svg = generate_svg(global_ctx, global_config.js_script_path, data);
-    
+
     if (param) free(param);
 
     if (svg) {
