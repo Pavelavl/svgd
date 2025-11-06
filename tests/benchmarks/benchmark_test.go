@@ -15,26 +15,28 @@ import (
 	"testing"
 	"time"
 
+	"lsrp_test/http"
+
 	"github.com/Pavelavl/go-lsrp"
 )
 
 const (
-	DefaultRequests    = 1000
-	DefaultConcurrency = 10
+	DefaultRequests    = 10000
+	DefaultConcurrency = 1
 	DefaultDuration    = 60 * time.Second
 	MetricsInterval    = 1 * time.Second
+	WarmupRequests     = 50
+	WarmupDelay        = 5 * time.Second
 )
 
 type BenchmarkConfig struct {
 	Requests      int
 	Concurrency   int
 	Duration      time.Duration
-	Endpoint      string
 	RRDFile       string
 	OutputDir     string
 	LogDir        string
 	ConfigFile    string
-	BinaryPath    string
 	UseRRDCached  bool
 	MetricsFile   string
 	config        Config
@@ -44,23 +46,28 @@ type BenchmarkConfig struct {
 
 type Config struct {
 	Server struct {
-		TcpPort       int    `json:"tcp_port"`
-		AllowedIPs    string `json:"allowed_ips"`
+		TCPPort       int    `json:"tcp_port"`
+		AllowedIps    string `json:"allowed_ips"`
 		RRDCachedAddr string `json:"rrdcached_addr"`
 	} `json:"server"`
 	RRD struct {
-		BasePath              string `json:"base_path"`
-		CpuTotal              string `json:"cpu_total"`
-		CpuProcess            string `json:"cpu_process"`
-		RamTotal              string `json:"ram_total"`
-		RamProcess            string `json:"ram_process"`
-		Network               string `json:"network"`
-		Disk                  string `json:"disk"`
-		PostgresqlConnections string `json:"postgresql_connections"`
+		BasePath string `json:"base_path"`
 	} `json:"rrd"`
 	JS struct {
 		ScriptPath string `json:"script_path"`
 	} `json:"js"`
+	Metrics []struct {
+		Endpoint         string `json:"endpoint"`
+		RrdPath          string `json:"rrd_path"`
+		RequiresParam    bool   `json:"requires_param"`
+		Title            string `json:"title"`
+		YLabel           string `json:"y_label"`
+		IsPercentage     bool   `json:"is_percentage"`
+		ValueFormat      string `json:"value_format"`
+		ParamName        string `json:"param_name,omitempty"`
+		TransformType    string `json:"transform_type,omitempty"`
+		TransformDivisor int    `json:"transform_divisor,omitempty"`
+	} `json:"metrics"`
 }
 
 type RequestResult struct {
@@ -88,20 +95,24 @@ type BenchmarkResult struct {
 }
 
 type MetricsSummary struct {
-	CPUAvg       float64
-	CPUMedian    float64
-	CPUMax       float64
-	MemAvgMB     float64
-	MemMedianMB  float64
-	MemMaxMB     float64
-	IOReadMB     float64
-	IOWriteMB    float64
-	IOReadOpsPS  float64
-	IOWriteOpsPS float64
-	ThreadsAvg   float64
-	ThreadsMax   int
-	FDsAvg       float64
-	FDsMax       int
+	CPUAvg                 float64
+	CPUMedian              float64
+	CPUMax                 float64
+	MemAvgMB               float64
+	MemMedianMB            float64
+	MemMaxMB               float64
+	IOReadMB               float64
+	IOWriteMB              float64
+	IOReadOpsPS            float64
+	IOWriteOpsPS           float64
+	ThreadsAvg             float64
+	ThreadsMax             int
+	FDsAvg                 float64
+	FDsMax                 int
+	CtxSwitchVoluntaryPS   float64
+	CtxSwitchInvoluntaryPS float64
+	PageFaultsMinorPS      float64
+	PageFaultsMajorPS      float64
 }
 
 func NewBenchmarkConfig() *BenchmarkConfig {
@@ -109,12 +120,10 @@ func NewBenchmarkConfig() *BenchmarkConfig {
 		Requests:    DefaultRequests,
 		Concurrency: DefaultConcurrency,
 		Duration:    DefaultDuration,
-		Endpoint:    "endpoint=cpu&period=3600",
 		RRDFile:     "/opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd",
 		OutputDir:   "results",
 		LogDir:      "logs",
 		ConfigFile:  "../../config.json",
-		BinaryPath:  "../bin/lsrp",
 	}
 }
 
@@ -146,14 +155,14 @@ func (bc *BenchmarkConfig) UpdateConfig() error {
 	return os.WriteFile(bc.ConfigFile, data, 0644)
 }
 
-func (bc *BenchmarkConfig) StartDaemon() (*exec.Cmd, error) {
+func (bc *BenchmarkConfig) StartDaemon(bin string) (*exec.Cmd, error) {
 	logFile := filepath.Join(bc.LogDir, "daemon.log")
 	log, err := os.Create(logFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	cmd := exec.Command(bc.BinaryPath, bc.ConfigFile)
+	cmd := exec.Command(bin, bc.ConfigFile)
 	cmd.Stdout = log
 	cmd.Stderr = log
 
@@ -162,47 +171,53 @@ func (bc *BenchmarkConfig) StartDaemon() (*exec.Cmd, error) {
 		return nil, fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	// Wait for daemon to start
+	fmt.Printf("Daemon starting with PID %d...\n", cmd.Process.Pid)
 	time.Sleep(2 * time.Second)
 
-	// Check if daemon is still running by checking /proc
 	if _, err := os.Stat(fmt.Sprintf("/proc/%d", cmd.Process.Pid)); os.IsNotExist(err) {
 		return nil, fmt.Errorf("daemon process not found after start")
 	}
 
-	// Try to connect to verify daemon is listening
-	maxRetries := 5
+	maxRetries := 10
+	retryDelay := 500 * time.Millisecond
 	for i := 0; i < maxRetries; i++ {
-		testClient, err := lsrp.NewClient("localhost", bc.config.Server.TcpPort)
+		testClient, err := lsrp.NewClient("localhost", bc.config.Server.TCPPort)
 		if err == nil {
 			testClient.Close()
-			fmt.Printf("Daemon started with PID %d on port %d\n", cmd.Process.Pid, bc.config.Server.TcpPort)
+			fmt.Printf("Daemon ready on port %d (attempt %d/%d)\n", bc.config.Server.TCPPort, i+1, maxRetries)
 			return cmd, nil
 		}
-		time.Sleep(500 * time.Millisecond)
+		if i < maxRetries-1 {
+			time.Sleep(retryDelay)
+		}
 	}
 
-	cmd.Process.Kill()
-	return nil, fmt.Errorf("daemon not accepting connections on port %d", bc.config.Server.TcpPort)
+	if err := cmd.Process.Kill(); err != nil {
+		fmt.Printf("Warning: failed to kill daemon: %v\n", err)
+	}
+	return nil, fmt.Errorf("daemon not accepting connections on port %d after %d attempts", bc.config.Server.TCPPort, maxRetries)
 }
 
 func (bc *BenchmarkConfig) StartMetricsCollector(daemonPID int) error {
 	bc.collectorStop = make(chan struct{})
 
-	// Build metrics collector if needed
 	collectorPath := "../bin/metrics_collector"
 	if _, err := os.Stat(collectorPath); os.IsNotExist(err) {
 		fmt.Println("Building metrics_collector...")
-		buildCmd := exec.Command("go", "build", "-o", collectorPath, "metrics_collector.go")
-		if err := buildCmd.Run(); err != nil {
-			return fmt.Errorf("failed to build metrics_collector: %w", err)
+		buildCmd := exec.Command("gcc", "-o", collectorPath, "/home/claude/metrics_collector.c", "-pthread")
+		if output, err := buildCmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to build metrics_collector: %w\n%s", err, output)
 		}
+	}
+
+	if _, err := os.Stat(fmt.Sprintf("/proc/%d", daemonPID)); os.IsNotExist(err) {
+		return fmt.Errorf("target process %d does not exist", daemonPID)
 	}
 
 	cmd := exec.Command(collectorPath,
 		strconv.Itoa(daemonPID),
 		bc.MetricsFile,
-		"1") // 1 second interval
+		"1")
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start metrics collector: %w", err)
@@ -211,45 +226,68 @@ func (bc *BenchmarkConfig) StartMetricsCollector(daemonPID int) error {
 	bc.collectorCmd = cmd
 	fmt.Printf("Metrics collector started with PID %d\n", cmd.Process.Pid)
 
-	// Wait a bit for collector to start
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(1500 * time.Millisecond)
+
+	if _, err := os.Stat(bc.MetricsFile); os.IsNotExist(err) {
+		return fmt.Errorf("metrics file not created after 1.5s")
+	}
 
 	return nil
 }
 
 func (bc *BenchmarkConfig) StopMetricsCollector() error {
 	if bc.collectorCmd != nil && bc.collectorCmd.Process != nil {
-		bc.collectorCmd.Process.Signal(os.Interrupt)
-		time.Sleep(1 * time.Second)
-		bc.collectorCmd.Process.Kill()
+		if err := bc.collectorCmd.Process.Signal(os.Interrupt); err != nil {
+			fmt.Printf("Warning: failed to send interrupt signal: %v\n", err)
+		}
+		time.Sleep(2 * time.Second)
+
+		if _, err := os.Stat(fmt.Sprintf("/proc/%d", bc.collectorCmd.Process.Pid)); err == nil {
+			if err := bc.collectorCmd.Process.Kill(); err != nil {
+				fmt.Printf("Warning: failed to kill collector: %v\n", err)
+			}
+		}
 	}
 	return nil
 }
 
-func (bc *BenchmarkConfig) RunLoadTest(client *lsrp.Client) (*BenchmarkResult, error) {
+func (bc *BenchmarkConfig) RunLoadTest(client any, p proto) (*BenchmarkResult, error) {
 	results := make(chan RequestResult, bc.Requests)
 	var wg sync.WaitGroup
 
 	startTime := time.Now()
 
-	// Semaphore for concurrency control
 	sem := make(chan struct{}, bc.Concurrency)
 
 	for i := 0; i < bc.Requests; i++ {
 		wg.Add(1)
-		sem <- struct{}{} // Acquire
+		sem <- struct{}{}
 
 		go func(reqNum int) {
 			defer wg.Done()
-			defer func() { <-sem }() // Release
+			defer func() { <-sem }()
 
 			reqStart := time.Now()
-			resp, err := client.Send(bc.Endpoint)
+			var (
+				resp any
+				err  error
+			)
+			if p == protoLSRP {
+				resp, err = client.(*lsrp.Client).Send("endpoint=cpu&period=3600")
+			} else {
+				resp, err = client.(*http.Client).Send("cpu?period=3600")
+			}
 			latency := time.Since(reqStart)
 
 			success := false
-			if err == nil && resp.Status == 0 {
-				success = true
+			if p == protoLSRP {
+				if err == nil && resp.(*lsrp.Response).Status == 0 {
+					success = true
+				}
+			} else {
+				if err == nil && resp.(*http.Response).Status == 0 {
+					success = true
+				}
 			}
 
 			results <- RequestResult{
@@ -266,7 +304,6 @@ func (bc *BenchmarkConfig) RunLoadTest(client *lsrp.Client) (*BenchmarkResult, e
 
 	duration := time.Since(startTime)
 
-	// Analyze results
 	return analyzeResults(results, duration)
 }
 
@@ -304,12 +341,10 @@ func analyzeResults(results chan RequestResult, duration time.Duration) (*Benchm
 	br.ThroughputRPS = float64(br.SuccessCount) / duration.Seconds()
 	br.Latencies = latencies
 
-	// Sort latencies for percentile calculation
 	sort.Slice(latencies, func(i, j int) bool {
 		return latencies[i] < latencies[j]
 	})
 
-	// Calculate statistics
 	var totalLatency time.Duration
 	for _, l := range latencies {
 		totalLatency += l
@@ -320,6 +355,12 @@ func analyzeResults(results chan RequestResult, duration time.Duration) (*Benchm
 	if len(latencies) > 0 {
 		p95Idx := int(float64(len(latencies)) * 0.95)
 		p99Idx := int(float64(len(latencies)) * 0.99)
+		if p95Idx >= len(latencies) {
+			p95Idx = len(latencies) - 1
+		}
+		if p99Idx >= len(latencies) {
+			p99Idx = len(latencies) - 1
+		}
 		br.P95Latency = latencies[p95Idx]
 		br.P99Latency = latencies[p99Idx]
 	}
@@ -341,10 +382,9 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
 	}
 
 	if len(records) < 2 {
-		return nil, fmt.Errorf("insufficient metrics data")
+		return nil, fmt.Errorf("insufficient metrics data: only %d records", len(records))
 	}
 
-	// Skip header
 	records = records[1:]
 
 	summary := &MetricsSummary{}
@@ -357,9 +397,13 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
 	var firstIOWrite, lastIOWrite uint64
 	var firstIOReadOps, lastIOReadOps uint64
 	var firstIOWriteOps, lastIOWriteOps uint64
+	var firstCtxVoluntary, lastCtxVoluntary uint64
+	var firstCtxInvoluntary, lastCtxInvoluntary uint64
+	var firstPageFaultsMinor, lastPageFaultsMinor uint64
+	var firstPageFaultsMajor, lastPageFaultsMajor uint64
 
 	for i, record := range records {
-		if len(record) < 12 {
+		if len(record) < 16 {
 			continue
 		}
 
@@ -371,12 +415,14 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
 		ioWriteOps, _ := strconv.ParseUint(record[9], 10, 64)
 		threads, _ := strconv.Atoi(record[10])
 		fds, _ := strconv.Atoi(record[11])
+		ctxVoluntary, _ := strconv.ParseUint(record[12], 10, 64)
+		ctxInvoluntary, _ := strconv.ParseUint(record[13], 10, 64)
+		pageFaultsMinor, _ := strconv.ParseUint(record[14], 10, 64)
+		pageFaultsMajor, _ := strconv.ParseUint(record[15], 10, 64)
 
-		if i > 0 { // Skip first CPU reading (always 0)
-			cpuValues = append(cpuValues, cpu)
-			if cpu > summary.CPUMax {
-				summary.CPUMax = cpu
-			}
+		cpuValues = append(cpuValues, cpu)
+		if cpu > summary.CPUMax {
+			summary.CPUMax = cpu
 		}
 
 		memMB := float64(memRSS) / 1024.0
@@ -400,14 +446,21 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
 			firstIOWrite = ioWriteBytes
 			firstIOReadOps = ioReadOps
 			firstIOWriteOps = ioWriteOps
+			firstCtxVoluntary = ctxVoluntary
+			firstCtxInvoluntary = ctxInvoluntary
+			firstPageFaultsMinor = pageFaultsMinor
+			firstPageFaultsMajor = pageFaultsMajor
 		}
 		lastIORead = ioReadBytes
 		lastIOWrite = ioWriteBytes
 		lastIOReadOps = ioReadOps
 		lastIOWriteOps = ioWriteOps
+		lastCtxVoluntary = ctxVoluntary
+		lastCtxInvoluntary = ctxInvoluntary
+		lastPageFaultsMinor = pageFaultsMinor
+		lastPageFaultsMajor = pageFaultsMajor
 	}
 
-	// Calculate averages
 	if len(cpuValues) > 0 {
 		for _, v := range cpuValues {
 			summary.CPUAvg += v
@@ -444,7 +497,6 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
 		summary.FDsAvg = float64(total) / float64(len(fdValues))
 	}
 
-	// Calculate IO totals
 	summary.IOReadMB = float64(lastIORead-firstIORead) / (1024 * 1024)
 	summary.IOWriteMB = float64(lastIOWrite-firstIOWrite) / (1024 * 1024)
 
@@ -452,6 +504,10 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
 	if duration > 0 {
 		summary.IOReadOpsPS = float64(lastIOReadOps-firstIOReadOps) / duration
 		summary.IOWriteOpsPS = float64(lastIOWriteOps-firstIOWriteOps) / duration
+		summary.CtxSwitchVoluntaryPS = float64(lastCtxVoluntary-firstCtxVoluntary) / duration
+		summary.CtxSwitchInvoluntaryPS = float64(lastCtxInvoluntary-firstCtxInvoluntary) / duration
+		summary.PageFaultsMinorPS = float64(lastPageFaultsMinor-firstPageFaultsMinor) / duration
+		summary.PageFaultsMajorPS = float64(lastPageFaultsMajor-firstPageFaultsMajor) / duration
 	}
 
 	return summary, nil
@@ -494,6 +550,14 @@ func printResults(testName string, br *BenchmarkResult, ms *MetricsSummary) {
 		fmt.Printf("  Read Ops/s:        %.2f\n", ms.IOReadOpsPS)
 		fmt.Printf("  Write Ops/s:       %.2f\n", ms.IOWriteOpsPS)
 
+		fmt.Println("\n🔄 Context Switches:")
+		fmt.Printf("  Voluntary/s:       %.2f\n", ms.CtxSwitchVoluntaryPS)
+		fmt.Printf("  Involuntary/s:     %.2f\n", ms.CtxSwitchInvoluntaryPS)
+
+		fmt.Println("\n📄 Page Faults:")
+		fmt.Printf("  Minor/s:           %.2f\n", ms.PageFaultsMinorPS)
+		fmt.Printf("  Major/s:           %.2f\n", ms.PageFaultsMajorPS)
+
 		fmt.Println("\n🔧 Process Statistics:")
 		fmt.Printf("  Threads (avg):     %.1f\n", ms.ThreadsAvg)
 		fmt.Printf("  Threads (max):     %d\n", ms.ThreadsMax)
@@ -504,216 +568,204 @@ func printResults(testName string, br *BenchmarkResult, ms *MetricsSummary) {
 	fmt.Println(strings.Repeat("=", 70))
 }
 
-func compareResults(direct, cached *BenchmarkResult, directMetrics, cachedMetrics *MetricsSummary) {
-	fmt.Println("\n" + strings.Repeat("=", 70))
-	fmt.Println("COMPARISON: Direct vs RRDCached")
-	fmt.Println(strings.Repeat("=", 70))
+type proto string
 
-	calcDiff := func(direct, cached float64) (float64, string) {
-		diff := ((cached - direct) / direct) * 100
-		sign := "+"
-		if diff < 0 {
-			sign = ""
+const (
+	protoLSRP proto = "lsrp"
+	protoHTTP proto = "http"
+)
+
+type ComparisonRow struct {
+	TestName   string
+	Protocol   string
+	RRDCached  bool
+	Throughput float64
+	AvgLatency time.Duration
+	P95Latency time.Duration
+	CPUAvg     float64
+	MemAvgMB   float64
+	IOReadMB   float64
+	IOWriteMB  float64
+}
+
+func printBenchmarkComparisonTable(rows []*ComparisonRow) {
+	fmt.Println("\n" + strings.Repeat("=", 150))
+	fmt.Println("# BENCHMARK COMPARISON TABLE")
+	fmt.Println(strings.Repeat("=", 150))
+	fmt.Println()
+	fmt.Println("| Protocol | RRDCached | Throughput (req/s) | Avg Latency | P95 Latency | CPU Avg (%) | Mem Avg (MB) | IO Read (MB) | IO Write (MB) |")
+	fmt.Println("|----------|-----------|-------------------|-------------|-------------|-------------|--------------|--------------|---------------|")
+
+	for _, row := range rows {
+		cached := "No"
+		if row.RRDCached {
+			cached = "Yes"
 		}
-		return diff, sign
+		fmt.Printf("| %-8s | %-9s | %17.2f | %11v | %11v | %11.2f | %12.2f | %12.2f | %13.2f |\n",
+			row.Protocol,
+			cached,
+			row.Throughput,
+			row.AvgLatency,
+			row.P95Latency,
+			row.CPUAvg,
+			row.MemAvgMB,
+			row.IOReadMB,
+			row.IOWriteMB,
+		)
 	}
 
-	fmt.Println("\n📊 Request Performance:")
-	if direct.ThroughputRPS > 0 {
-		diff, sign := calcDiff(direct.ThroughputRPS, cached.ThroughputRPS)
-		fmt.Printf("  Throughput:        Direct: %.2f req/s  |  Cached: %.2f req/s  (%s%.2f%%)\n",
-			direct.ThroughputRPS, cached.ThroughputRPS, sign, diff)
-	}
-
-	avgDiff := float64(cached.AvgLatency-direct.AvgLatency) / float64(direct.AvgLatency) * 100
-	avgSign := "+"
-	if avgDiff < 0 {
-		avgSign = ""
-	}
-	fmt.Printf("  Avg Latency:       Direct: %v  |  Cached: %v  (%s%.2f%%)\n",
-		direct.AvgLatency, cached.AvgLatency, avgSign, avgDiff)
-
-	p95Diff := float64(cached.P95Latency-direct.P95Latency) / float64(direct.P95Latency) * 100
-	p95Sign := "+"
-	if p95Diff < 0 {
-		p95Sign = ""
-	}
-	fmt.Printf("  P95 Latency:       Direct: %v  |  Cached: %v  (%s%.2f%%)\n",
-		direct.P95Latency, cached.P95Latency, p95Sign, p95Diff)
-
-	if directMetrics != nil && cachedMetrics != nil {
-		fmt.Println("\n💻 CPU Usage:")
-		cpuDiff, cpuSign := calcDiff(directMetrics.CPUAvg, cachedMetrics.CPUAvg)
-		fmt.Printf("  Average:           Direct: %.2f%%  |  Cached: %.2f%%  (%s%.2f%%)\n",
-			directMetrics.CPUAvg, cachedMetrics.CPUAvg, cpuSign, cpuDiff)
-
-		fmt.Println("\n🧠 Memory Usage:")
-		memDiff, memSign := calcDiff(directMetrics.MemAvgMB, cachedMetrics.MemAvgMB)
-		fmt.Printf("  Average:           Direct: %.2f MB  |  Cached: %.2f MB  (%s%.2f%%)\n",
-			directMetrics.MemAvgMB, cachedMetrics.MemAvgMB, memSign, memDiff)
-
-		fmt.Println("\n💾 I/O Operations:")
-		ioDiff, ioSign := calcDiff(directMetrics.IOReadOpsPS+directMetrics.IOWriteOpsPS,
-			cachedMetrics.IOReadOpsPS+cachedMetrics.IOWriteOpsPS)
-		fmt.Printf("  Total IOPS:        Direct: %.2f  |  Cached: %.2f  (%s%.2f%%)\n",
-			directMetrics.IOReadOpsPS+directMetrics.IOWriteOpsPS,
-			cachedMetrics.IOReadOpsPS+cachedMetrics.IOWriteOpsPS, ioSign, ioDiff)
-
-		fmt.Printf("  Read MB:           Direct: %.2f  |  Cached: %.2f\n",
-			directMetrics.IOReadMB, cachedMetrics.IOReadMB)
-		fmt.Printf("  Write MB:          Direct: %.2f  |  Cached: %.2f\n",
-			directMetrics.IOWriteMB, cachedMetrics.IOWriteMB)
-	}
-
-	fmt.Println(strings.Repeat("=", 70))
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 150))
 }
 
 func Test_BenchmarkDirectVsCached(t *testing.T) {
-	// Create directories
+	// t.Skip()
+
 	os.MkdirAll("results", 0755)
 	os.MkdirAll("logs", 0755)
 
-	// Test 1: Direct (without rrdcached)
-	t.Run("Direct", func(t *testing.T) {
-		bc := NewBenchmarkConfig()
-		bc.UseRRDCached = false
-		bc.MetricsFile = filepath.Join(bc.OutputDir, "direct_metrics.csv")
-
-		if err := bc.LoadConfig(); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-
-		// Increment port to avoid conflicts
-		bc.config.Server.TcpPort += 1
-
-		if err := bc.UpdateConfig(); err != nil {
-			t.Fatalf("Failed to update config: %v", err)
-		}
-
-		// Start daemon
-		daemonCmd, err := bc.StartDaemon()
-		if err != nil {
-			t.Fatalf("Failed to start daemon: %v", err)
-		}
-		defer daemonCmd.Process.Kill()
-
-		// Start metrics collector
-		if err := bc.StartMetricsCollector(daemonCmd.Process.Pid); err != nil {
-			t.Fatalf("Failed to start metrics collector: %v", err)
-		}
-		defer bc.StopMetricsCollector()
-
-		// Create client
-		client, err := lsrp.NewClient("localhost", bc.config.Server.TcpPort)
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
-		defer client.Close()
-
-		// Warmup
-		fmt.Println("Warming up...")
-		for i := 0; i < 10; i++ {
-			client.Send(bc.Endpoint)
-		}
-		time.Sleep(2 * time.Second)
-
-		// Run load test
-		fmt.Printf("\nRunning load test: %d requests, concurrency: %d\n", bc.Requests, bc.Concurrency)
-		result, err := bc.RunLoadTest(client)
-		if err != nil {
-			t.Fatalf("Load test failed: %v", err)
-		}
-
-		// Stop collector and analyze metrics
-		bc.StopMetricsCollector()
-		time.Sleep(2 * time.Second)
-
-		metrics, err := bc.AnalyzeMetrics()
-		if err != nil {
-			t.Logf("Warning: Failed to analyze metrics: %v", err)
-		}
-
-		result.TestName = "Direct (without rrdcached)"
-		printResults(result.TestName, result, metrics)
-
-		// Save results to file
-		saveResultsToJSON(filepath.Join(bc.OutputDir, "direct_results.json"), result, metrics)
-	})
-
-	// Test 2: With rrdcached
-	t.Run("Cached", func(t *testing.T) {
-		bc := NewBenchmarkConfig()
-		bc.UseRRDCached = true
-		bc.MetricsFile = filepath.Join(bc.OutputDir, "cached_metrics.csv")
-
-		if err := bc.LoadConfig(); err != nil {
-			t.Fatalf("Failed to load config: %v", err)
-		}
-
-		// Increment port to avoid conflicts
-		bc.config.Server.TcpPort += 2
-
-		if err := bc.UpdateConfig(); err != nil {
-			t.Fatalf("Failed to update config: %v", err)
-		}
-
-		// Start daemon
-		daemonCmd, err := bc.StartDaemon()
-		if err != nil {
-			t.Fatalf("Failed to start daemon: %v", err)
-		}
-		defer daemonCmd.Process.Kill()
-
-		// Start metrics collector
-		if err := bc.StartMetricsCollector(daemonCmd.Process.Pid); err != nil {
-			t.Fatalf("Failed to start metrics collector: %v", err)
-		}
-		defer bc.StopMetricsCollector()
-
-		// Create client
-		client, err := lsrp.NewClient("localhost", bc.config.Server.TcpPort)
-		if err != nil {
-			t.Fatalf("Failed to create client: %v", err)
-		}
-		defer client.Close()
-
-		// Warmup
-		fmt.Println("Warming up...")
-		for i := 0; i < 10; i++ {
-			client.Send(bc.Endpoint)
-		}
-		time.Sleep(2 * time.Second)
-
-		// Run load test
-		fmt.Printf("\nRunning load test: %d requests, concurrency: %d\n", bc.Requests, bc.Concurrency)
-		result, err := bc.RunLoadTest(client)
-		if err != nil {
-			t.Fatalf("Load test failed: %v", err)
-		}
-
-		// Stop collector and analyze metrics
-		bc.StopMetricsCollector()
-		time.Sleep(2 * time.Second)
-
-		metrics, err := bc.AnalyzeMetrics()
-		if err != nil {
-			t.Logf("Warning: Failed to analyze metrics: %v", err)
-		}
-
-		result.TestName = "Cached (with rrdcached)"
-		printResults(result.TestName, result, metrics)
-
-		// Save results to file
-		saveResultsToJSON(filepath.Join(bc.OutputDir, "cached_results.json"), result, metrics)
-	})
-
-	// Compare results
-	directResult, directMetrics := loadResultsFromJSON(filepath.Join("benchmark_results", "direct_results.json"))
-	cachedResult, cachedMetrics := loadResultsFromJSON(filepath.Join("benchmark_results", "cached_results.json"))
-
-	if directResult != nil && cachedResult != nil {
-		compareResults(directResult, cachedResult, directMetrics, cachedMetrics)
+	tests := []struct {
+		name             string
+		usecache         bool
+		metricFilePrefix string
+		p                proto
+	}{
+		{
+			name:             "direct LSRP",
+			usecache:         false,
+			metricFilePrefix: "direct",
+			p:                protoLSRP,
+		},
+		{
+			name:             "rrdcached LSRP",
+			usecache:         true,
+			metricFilePrefix: "cached",
+			p:                protoLSRP,
+		},
+		{
+			name:             "direct HTTP",
+			usecache:         false,
+			metricFilePrefix: "direct",
+			p:                protoHTTP,
+		},
+		{
+			name:             "rrdcached HTTP",
+			usecache:         true,
+			metricFilePrefix: "cached",
+			p:                protoHTTP,
+		},
 	}
+
+	var comparisonRows []*ComparisonRow
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bc := NewBenchmarkConfig()
+			bc.UseRRDCached = tt.usecache
+			bc.MetricsFile = filepath.Join(bc.OutputDir, fmt.Sprintf("%s_%s_metrics.csv", tt.metricFilePrefix, tt.p))
+
+			if err := bc.LoadConfig(); err != nil {
+				t.Fatalf("Failed to load config: %v", err)
+			}
+
+			bc.config.Server.TCPPort++
+
+			if err := bc.UpdateConfig(); err != nil {
+				t.Fatalf("Failed to update config: %v", err)
+			}
+
+			daemonCmd, err := bc.StartDaemon(fmt.Sprintf("../bin/%s", tt.p))
+			if err != nil {
+				t.Fatalf("Failed to start daemon: %v", err)
+			}
+			defer func() {
+				if daemonCmd != nil && daemonCmd.Process != nil {
+					if err := daemonCmd.Process.Kill(); err != nil {
+						t.Logf("Warning: failed to kill daemon: %v", err)
+					}
+				}
+			}()
+
+			if err := bc.StartMetricsCollector(daemonCmd.Process.Pid); err != nil {
+				t.Fatalf("Failed to start metrics collector: %v", err)
+			}
+			defer bc.StopMetricsCollector()
+
+			var client any
+			if tt.p == protoLSRP {
+				c, err := lsrp.NewClient("localhost", bc.config.Server.TCPPort)
+				if err != nil {
+					t.Fatalf("Failed to create lsrp client: %v", err)
+				}
+				defer c.Close()
+				client = c
+			} else {
+				c, err := http.NewClient("localhost", bc.config.Server.TCPPort)
+				if err != nil {
+					t.Fatalf("Failed to create http client: %v", err)
+				}
+				defer c.Close()
+				client = c
+			}
+
+			fmt.Printf("Warming up with %d requests...\n", WarmupRequests)
+			successCount := 0
+			for i := 0; i < WarmupRequests; i++ {
+				if tt.p == protoLSRP {
+					if _, err = client.(*lsrp.Client).Send("endpoint=cpu&period=3600"); err == nil {
+						successCount++
+					}
+				} else {
+					if _, err = client.(*http.Client).Send("cpu?period=3600"); err == nil {
+						successCount++
+					}
+				}
+			}
+			fmt.Printf("Warmup completed: %d/%d successful\n", successCount, WarmupRequests)
+
+			if successCount < WarmupRequests/2 {
+				t.Fatalf("Warmup failed: only %d/%d requests succeeded", successCount, WarmupRequests)
+			}
+
+			fmt.Printf("Waiting %v before starting test...\n", WarmupDelay)
+			time.Sleep(WarmupDelay)
+
+			fmt.Printf("\nRunning load test: %d requests, concurrency: %d\n", bc.Requests, bc.Concurrency)
+			result, err := bc.RunLoadTest(client, tt.p)
+			if err != nil {
+				t.Fatalf("Load test failed: %v", err)
+			}
+
+			bc.StopMetricsCollector()
+			time.Sleep(2 * time.Second)
+
+			metrics, err := bc.AnalyzeMetrics()
+			if err != nil {
+				t.Logf("Warning: Failed to analyze metrics: %v", err)
+			}
+
+			result.TestName = tt.name
+			printResults(result.TestName, result, metrics)
+
+			row := &ComparisonRow{
+				TestName:   tt.name,
+				Protocol:   string(tt.p),
+				RRDCached:  tt.usecache,
+				Throughput: result.ThroughputRPS,
+				AvgLatency: result.AvgLatency,
+				P95Latency: result.P95Latency,
+			}
+			if metrics != nil {
+				row.CPUAvg = metrics.CPUAvg
+				row.MemAvgMB = metrics.MemAvgMB
+				row.IOReadMB = metrics.IOReadMB
+				row.IOWriteMB = metrics.IOWriteMB
+			}
+			comparisonRows = append(comparisonRows, row)
+		})
+	}
+
+	printBenchmarkComparisonTable(comparisonRows)
 }
 
 type SavedResults struct {
@@ -721,35 +773,6 @@ type SavedResults struct {
 	Metrics   *MetricsSummary  `json:"metrics"`
 }
 
-func saveResultsToJSON(filename string, br *BenchmarkResult, ms *MetricsSummary) error {
-	saved := SavedResults{
-		Benchmark: br,
-		Metrics:   ms,
-	}
-
-	data, err := json.MarshalIndent(saved, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(filename, data, 0644)
-}
-
-func loadResultsFromJSON(filename string) (*BenchmarkResult, *MetricsSummary) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, nil
-	}
-
-	var saved SavedResults
-	if err := json.Unmarshal(data, &saved); err != nil {
-		return nil, nil
-	}
-
-	return saved.Benchmark, saved.Metrics
-}
-
-// Helper function
 func Repeat(s string, count int) string {
 	result := ""
 	for i := 0; i < count; i++ {

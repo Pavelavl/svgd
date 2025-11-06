@@ -1,135 +1,135 @@
 {
-  "server": {
-    "tcp_port": 8081,
-    "allowed_ips": "127.0.0.1",
-    "rrdcached_addr": ""
-  },
-  "rrd": {
-    "base_path": "/opt/collectd/var/lib/collectd/rrd/localhost"
-  },
-  "js": {
-    "script_path": "/home/workerpool/svgd/scripts/generate_cpu_svg.js"
-  },
-  "metrics": [
-    {
-      "endpoint": "cpu",
-      "rrd_path": "cpu-total/percent-active.rrd",
-      "requires_param": false,
-      "title": "CPU Utilization",
-      "y_label": "Usage (%)",
-      "is_percentage": true,
-      "value_format": "%.1f"
-    },
-    {
-      "endpoint": "cpu/process",
-      "rrd_path": "processes-%s/ps_cputime.rrd",
-      "requires_param": true,
-      "param_name": "process_name",
-      "title": "CPU Time for %s",
-      "y_label": "CPU Time (seconds)",
-      "is_percentage": false,
-      "transform_type": "sum",
-      "value_format": "%.2f"
-    },
-    {
-      "endpoint": "ram",
-      "rrd_path": "memory/percent-used.rrd",
-      "requires_param": false,
-      "title": "RAM Utilization",
-      "y_label": "Usage (%)",
-      "is_percentage": true,
-      "value_format": "%.1f"
-    },
-    {
-      "endpoint": "ram/process",
-      "rrd_path": "processes-%s/ps_rss.rrd",
-      "requires_param": true,
-      "param_name": "process_name",
-      "title": "Memory Usage for %s",
-      "y_label": "Memory (MB)",
-      "is_percentage": false,
-      "transform_type": "divide",
-      "transform_divisor": 1048576,
-      "value_format": "%.1f"
-    },
-    {
-      "endpoint": "network",
-      "rrd_path": "interface-%s/if_octets.rrd",
-      "requires_param": true,
-      "param_name": "interface",
-      "title": "Network Traffic for %s",
-      "y_label": "Traffic (B/s)",
-      "is_percentage": false,
-      "value_format": "%.2f"
-    },
-    {
-      "endpoint": "disk",
-      "rrd_path": "disk-%s/disk_ops.rrd",
-      "requires_param": true,
-      "param_name": "disk",
-      "title": "Disk Operations for %s",
-      "y_label": "Operations/s",
-      "is_percentage": false,
-      "value_format": "%.1f"
-    },
-    {
-      "endpoint": "postgresql/connections",
-      "rrd_path": "postgresql-iqchannels/pg_numbackends.rrd",
-      "requires_param": false,
-      "title": "PostgreSQL Connections",
-      "y_label": "Connections",
-      "is_percentage": false,
-      "value_format": "%d"
-    },
-    {
-      "endpoint": "system/load",
-      "rrd_path": "load/load.rrd",
-      "requires_param": false,
-      "title": "System Load Average",
-      "y_label": "Load",
-      "is_percentage": false,
-      "value_format": "%.2f"
-    },
-    {
-      "endpoint": "system/uptime",
-      "rrd_path": "uptime/uptime.rrd",
-      "requires_param": false,
-      "title": "System Uptime",
-      "y_label": "Uptime (hours)",
-      "is_percentage": false,
-      "transform_type": "divide",
-      "transform_divisor": 3600,
-      "value_format": "%.1f"
-    },
-    {
-      "endpoint": "swap/usage",
-      "rrd_path": "swap/percent-used.rrd",
-      "requires_param": false,
-      "title": "Swap Usage",
-      "y_label": "Usage (%)",
-      "is_percentage": true,
-      "value_format": "%.1f"
-    },
-    {
-      "endpoint": "swap/bytes",
-      "rrd_path": "swap/swap-used.rrd",
-      "requires_param": false,
-      "title": "Swap Usage (Bytes)",
-      "y_label": "Memory (MB)",
-      "is_percentage": false,
-      "transform_type": "divide",
-      "transform_divisor": 1048576,
-      "value_format": "%.1f"
-    },
-    {
-      "endpoint": "filesystem",
-      "rrd_path": "df-mnt-%s/percent_bytes-used.rrd",
-      "requires_param": true,
-      "param_name": "fs_name",
-      "title": "Filesystem Usage (mnt-%s)",
-      "y_label": "Usage (%)",
-      "is_percentage": true,
-      "value_format": "%.1f"
-    }
-  ]
+	"server": {
+		"tcp_port": 8081,
+		"allowed_ips": "127.0.0.1",
+		"rrdcached_addr": ""
+	},
+	"rrd": {
+		"base_path": "/opt/collectd/var/lib/collectd/rrd/localhost"
+	},
+	"js": {
+		"script_path": "/home/workerpool/svgd/scripts/generate_cpu_svg.js"
+	},
+	"metrics": [
+		{
+			"endpoint": "cpu",
+			"rrd_path": "cpu-total/percent-active.rrd",
+			"requires_param": false,
+			"title": "CPU Utilization",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f"
+		},
+		{
+			"endpoint": "cpu/process",
+			"rrd_path": "processes-%s/ps_cputime.rrd",
+			"requires_param": true,
+			"title": "CPU Time for %s",
+			"y_label": "CPU Time (seconds)",
+			"is_percentage": false,
+			"value_format": "%.2f",
+			"param_name": "process_name",
+			"transform_type": "sum"
+		},
+		{
+			"endpoint": "ram",
+			"rrd_path": "memory/percent-used.rrd",
+			"requires_param": false,
+			"title": "RAM Utilization",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f"
+		},
+		{
+			"endpoint": "ram/process",
+			"rrd_path": "processes-%s/ps_rss.rrd",
+			"requires_param": true,
+			"title": "Memory Usage for %s",
+			"y_label": "Memory (MB)",
+			"is_percentage": false,
+			"value_format": "%.1f",
+			"param_name": "process_name",
+			"transform_type": "divide",
+			"transform_divisor": 1048576
+		},
+		{
+			"endpoint": "network",
+			"rrd_path": "interface-%s/if_octets.rrd",
+			"requires_param": true,
+			"title": "Network Traffic for %s",
+			"y_label": "Traffic (B/s)",
+			"is_percentage": false,
+			"value_format": "%.2f",
+			"param_name": "interface"
+		},
+		{
+			"endpoint": "disk",
+			"rrd_path": "disk-%s/disk_ops.rrd",
+			"requires_param": true,
+			"title": "Disk Operations for %s",
+			"y_label": "Operations/s",
+			"is_percentage": false,
+			"value_format": "%.1f",
+			"param_name": "disk"
+		},
+		{
+			"endpoint": "postgresql/connections",
+			"rrd_path": "postgresql-iqchannels/pg_numbackends.rrd",
+			"requires_param": false,
+			"title": "PostgreSQL Connections",
+			"y_label": "Connections",
+			"is_percentage": false,
+			"value_format": "%d"
+		},
+		{
+			"endpoint": "system/load",
+			"rrd_path": "load/load.rrd",
+			"requires_param": false,
+			"title": "System Load Average",
+			"y_label": "Load",
+			"is_percentage": false,
+			"value_format": "%.2f"
+		},
+		{
+			"endpoint": "system/uptime",
+			"rrd_path": "uptime/uptime.rrd",
+			"requires_param": false,
+			"title": "System Uptime",
+			"y_label": "Uptime (hours)",
+			"is_percentage": false,
+			"value_format": "%.1f",
+			"transform_type": "divide",
+			"transform_divisor": 3600
+		},
+		{
+			"endpoint": "swap/usage",
+			"rrd_path": "swap/percent-used.rrd",
+			"requires_param": false,
+			"title": "Swap Usage",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f"
+		},
+		{
+			"endpoint": "swap/bytes",
+			"rrd_path": "swap/swap-used.rrd",
+			"requires_param": false,
+			"title": "Swap Usage (Bytes)",
+			"y_label": "Memory (MB)",
+			"is_percentage": false,
+			"value_format": "%.1f",
+			"transform_type": "divide",
+			"transform_divisor": 1048576
+		},
+		{
+			"endpoint": "filesystem",
+			"rrd_path": "df-mnt-%s/percent_bytes-used.rrd",
+			"requires_param": true,
+			"title": "Filesystem Usage (mnt-%s)",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f",
+			"param_name": "fs_name"
+		}
+	]
 }

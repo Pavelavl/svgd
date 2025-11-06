@@ -64,7 +64,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
-	fmt.Printf("Using port %d from config.json\n", tc.config.Server.TcpPort)
+	fmt.Printf("Using port %d from config.json\n", tc.config.Server.TCPPort)
 	if err := tc.checkPort(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -97,9 +97,10 @@ func Test_HTTPVsLSRP(t *testing.T) {
 		{binary: "lsrp", rrdcached: false, logPrefix: "lsrp_without_rrdcached", mode: "parallel", protocol: "lsrp"},
 	}
 
+	var allResults []*TestResult
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%s_%s", tt.logPrefix, tt.mode), func(t *testing.T) {
-			tc.config.Server.TcpPort += 1
+			tc.config.Server.TCPPort += 1
 			if !tt.rrdcached {
 				tc.config.Server.RRDCachedAddr = ""
 			} else {
@@ -110,11 +111,16 @@ func Test_HTTPVsLSRP(t *testing.T) {
 				t.Error(err)
 			}
 
-			if err := tc.run(t, tt.binary, tt.logPrefix, tt.mode, tt.protocol); err != nil {
+			result, err := tc.run(t, tt.binary, tt.logPrefix, tt.mode, tt.protocol)
+			if err != nil {
 				t.Errorf("Test failed for %s in %s mode: %v", tt.binary, tt.mode, err)
+			} else {
+				allResults = append(allResults, result)
 			}
 		})
 	}
+
+	printComparisonTable(allResults)
 }
 
 type testCase struct {
@@ -158,23 +164,28 @@ func checkFile(path string, executable bool) error {
 
 type config struct {
 	Server struct {
-		TcpPort       int    `json:"tcp_port"`
-		AllowedIPs    string `json:"allowed_ips"`
+		TCPPort       int    `json:"tcp_port"`
+		AllowedIps    string `json:"allowed_ips"`
 		RRDCachedAddr string `json:"rrdcached_addr"`
 	} `json:"server"`
 	RRD struct {
-		BasePath              string `json:"base_path"`
-		CpuTotal              string `json:"cpu_total"`
-		CpuProcess            string `json:"cpu_process"`
-		RamTotal              string `json:"ram_total"`
-		RamProcess            string `json:"ram_process"`
-		Network               string `json:"network"`
-		Disk                  string `json:"disk"`
-		PostgresqlConnections string `json:"postgresql_connections"`
+		BasePath string `json:"base_path"`
 	} `json:"rrd"`
 	JS struct {
 		ScriptPath string `json:"script_path"`
 	} `json:"js"`
+	Metrics []struct {
+		Endpoint         string `json:"endpoint"`
+		RrdPath          string `json:"rrd_path"`
+		RequiresParam    bool   `json:"requires_param"`
+		Title            string `json:"title"`
+		YLabel           string `json:"y_label"`
+		IsPercentage     bool   `json:"is_percentage"`
+		ValueFormat      string `json:"value_format"`
+		ParamName        string `json:"param_name,omitempty"`
+		TransformType    string `json:"transform_type,omitempty"`
+		TransformDivisor int    `json:"transform_divisor,omitempty"`
+	} `json:"metrics"`
 }
 
 func (tc *testCase) readConfigPort() error {
@@ -199,15 +210,15 @@ func (tc *testCase) updateConfig() error {
 }
 
 func (tc testCase) checkPort() error {
-	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TcpPort))
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TCPPort))
 	if err := cmd.Run(); err == nil {
-		cmdKill := exec.Command("kill", "-TERM", "$(lsof -t -i :"+strconv.Itoa(tc.config.Server.TcpPort)+")")
+		cmdKill := exec.Command("kill", "-TERM", "$(lsof -t -i :"+strconv.Itoa(tc.config.Server.TCPPort)+")")
 		if err := cmdKill.Run(); err != nil {
-			return fmt.Errorf("failed to free port %d: %v", tc.config.Server.TcpPort, err)
+			return fmt.Errorf("failed to free port %d: %v", tc.config.Server.TCPPort, err)
 		}
 		time.Sleep(1 * time.Second)
 		if err := cmd.Run(); err == nil {
-			return fmt.Errorf("port %d still in use after attempting to free it", tc.config.Server.TcpPort)
+			return fmt.Errorf("port %d still in use after attempting to free it", tc.config.Server.TCPPort)
 		}
 	}
 	return nil
@@ -318,7 +329,21 @@ func (tc testCase) sendRequest(t *testing.T, requestNum int, client interface{},
 	results <- result{requestNum, elapsed, resultStatus}
 }
 
-func analyzeResults(logPrefix string, results []result) {
+type TestResult struct {
+	TestName      string
+	Protocol      string
+	Mode          string
+	RRDCached     bool
+	TotalRequests int
+	SuccessCount  int
+	SuccessRate   float64
+	AvgTimeMs     int64
+	MedianTimeMs  int64
+	MinTimeMs     int64
+	MaxTimeMs     int64
+}
+
+func analyzeResults(logPrefix string, results []result) *TestResult {
 	var totalTime int64
 	var successCount, count int
 	var times []int64
@@ -343,18 +368,14 @@ func analyzeResults(logPrefix string, results []result) {
 	}
 
 	if count == 0 {
-		fmt.Printf("=== Results for %s ===\n", logPrefix)
-		fmt.Println("Error: No valid request data found")
-		fmt.Printf("Server log: %s/%s_server.log\n", tc.logDir, logPrefix)
-		fmt.Printf("Client errors: %s/client_errors.log\n", tc.logDir)
-		fmt.Println("==============================")
-		return
+		return &TestResult{
+			TestName: logPrefix,
+		}
 	}
 
 	avgTime := totalTime / int64(count)
-	successRate := (successCount * 100) / count
+	successRate := float64(successCount) * 100 / float64(count)
 
-	// Calculate median
 	sort.Slice(times, func(i, j int) bool { return times[i] < times[j] })
 	var medianTime int64
 	if len(times)%2 == 0 {
@@ -364,49 +385,83 @@ func analyzeResults(logPrefix string, results []result) {
 		medianTime = times[len(times)/2]
 	}
 
-	fmt.Printf("=== Results for %s ===\n", logPrefix)
-	fmt.Printf("Total requests: %d\n", count)
-	fmt.Printf("Successful requests: %d (%d%%)\n", successCount, successRate)
-	fmt.Printf("Average time: %d ms\n", avgTime)
-	fmt.Printf("Median time: %d ms\n", medianTime)
-	fmt.Printf("Min time: %d ms\n", minTime)
-	fmt.Printf("Max time: %d ms\n", maxTime)
-	fmt.Printf("Server log: %s/%s_server.log\n", tc.logDir, logPrefix)
-	fmt.Printf("Client errors: %s/client_errors.log\n", tc.logDir)
-	fmt.Println("==============================")
+	return &TestResult{
+		TestName:      logPrefix,
+		TotalRequests: count,
+		SuccessCount:  successCount,
+		SuccessRate:   successRate,
+		AvgTimeMs:     avgTime,
+		MedianTimeMs:  medianTime,
+		MinTimeMs:     minTime,
+		MaxTimeMs:     maxTime,
+	}
 }
 
-func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) error {
+func printComparisonTable(results []*TestResult) {
+	fmt.Println("\n" + strings.Repeat("=", 140))
+	fmt.Println("# COMPARISON TABLE: All Test Cases")
+	fmt.Println(strings.Repeat("=", 140))
+	fmt.Println()
+	fmt.Println("| Protocol | Mode | RRDCached | Total | Success | Rate | Avg (ms) | Median (ms) | Min (ms) | Max (ms) |")
+	fmt.Println("|----------|------|-----------|-------|---------|------|----------|-------------|----------|----------|")
+
+	for _, r := range results {
+		if r.TotalRequests == 0 {
+			continue
+		}
+		cached := "No"
+		if r.RRDCached {
+			cached = "Yes"
+		}
+		fmt.Printf("| %-8s | %-8s | %-9s | %5d | %7d | %5.1f%% | %8d | %11d | %8d | %8d |\n",
+			r.Protocol,
+			r.Mode,
+			cached,
+			r.TotalRequests,
+			r.SuccessCount,
+			r.SuccessRate,
+			r.AvgTimeMs,
+			r.MedianTimeMs,
+			r.MinTimeMs,
+			r.MaxTimeMs,
+		)
+	}
+
+	fmt.Println()
+	fmt.Println(strings.Repeat("=", 140))
+}
+
+func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) (*TestResult, error) {
 	logFile := filepath.Join(tc.logDir, fmt.Sprintf("%s_%s.log", logPrefix, mode))
 	results := make([]result, 0, tc.requests)
 
 	// Check binary
 	if err := checkFile("../bin/"+binary, true); err != nil {
-		return err
+		return nil, err
 	}
 
 	// Check dependencies
 	cmd := exec.Command("ldd", "../bin/"+binary)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("dependency check failed for ../bin/%s: %v", binary, err)
+		return nil, fmt.Errorf("dependency check failed for ../bin/%s: %v", binary, err)
 	}
 
 	// Start server
-	t.Logf("Starting %s server on port %d with binary ../bin/%s and config %s\n", logPrefix, tc.config.Server.TcpPort, binary, tc.configFile)
+	t.Logf("Starting %s server on port %d with binary ../bin/%s and config %s\n", logPrefix, tc.config.Server.TCPPort, binary, tc.configFile)
 	serverCmd := exec.Command("../bin/"+binary, tc.configFile)
 	serverLog, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open log file %s: %v", logFile, err)
+		return nil, fmt.Errorf("failed to open log file %s: %v", logFile, err)
 	}
 	defer serverLog.Close()
 	serverCmd.Stdout = serverLog
 	serverCmd.Stderr = serverLog
 	if err := serverCmd.Start(); err != nil {
-		return fmt.Errorf("failed to start %s server: %v", logPrefix, err)
+		return nil, fmt.Errorf("failed to start %s server: %v", logPrefix, err)
 	}
 	t.Logf("Server started with PID %d\n", serverCmd.Process.Pid)
 	defer func() {
-		t.Logf("Shutting down server on port %d\n", tc.config.Server.TcpPort)
+		t.Logf("Shutting down server on port %d\n", tc.config.Server.TCPPort)
 		serverCmd.Process.Signal(os.Interrupt)
 		serverCmd.Wait()
 	}()
@@ -414,28 +469,28 @@ func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) 
 
 	// Verify server is running
 	if _, err := os.FindProcess(serverCmd.Process.Pid); err != nil {
-		return fmt.Errorf("server %s failed to start, check %s", logPrefix, logFile)
+		return nil, fmt.Errorf("server %s failed to start, check %s", logPrefix, logFile)
 	}
 
 	// Verify server is listening
-	cmd = exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TcpPort))
+	cmd = exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TCPPort))
 	if err := cmd.Run(); err != nil {
-		t.Logf("Warning: %s server not listening on port %d, check %s\n", logPrefix, tc.config.Server.TcpPort, logFile)
+		t.Logf("Warning: %s server not listening on port %d, check %s\n", logPrefix, tc.config.Server.TCPPort, logFile)
 	}
 
 	// Create client
 	var client interface{}
 	endpoint := tc.endpoint
 	if protocol == "http" {
-		client, err = http.NewClient("localhost", tc.config.Server.TcpPort)
+		client, err = http.NewClient("localhost", tc.config.Server.TCPPort)
 		if err != nil {
-			return fmt.Errorf("http.NewClient: %w", err)
+			return nil, fmt.Errorf("http.NewClient: %w", err)
 		}
 		endpoint = tc.httpEndpoint
 	} else {
-		lsrpClient, err := lsrp.NewClient("localhost", tc.config.Server.TcpPort)
+		lsrpClient, err := lsrp.NewClient("localhost", tc.config.Server.TCPPort)
 		if err != nil {
-			return fmt.Errorf("failed to create LSRP client for %s:%d: %v", "localhost", tc.config.Server.TcpPort, err)
+			return nil, fmt.Errorf("failed to create LSRP client for %s:%d: %v", "localhost", tc.config.Server.TCPPort, err)
 		}
 		client = lsrpClient
 		defer lsrpClient.Close() // Close only in parallel mode
@@ -444,11 +499,11 @@ func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) 
 	// Open client error log
 	errorLog, err := os.OpenFile(filepath.Join(tc.logDir, "client_errors.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return fmt.Errorf("failed to open client error log: %v", err)
+		return nil, fmt.Errorf("failed to open client error log: %v", err)
 	}
 	defer errorLog.Close()
 
-	t.Logf("Running %d requests in %s mode for %s on port %d using %s protocol...\n", tc.requests, mode, logPrefix, tc.config.Server.TcpPort, protocol)
+	t.Logf("Running %d requests in %s mode for %s on port %d using %s protocol...\n", tc.requests, mode, logPrefix, tc.config.Server.TCPPort, protocol)
 
 	if mode == "sync" {
 		resultChan := make(chan result, tc.requests)
@@ -485,7 +540,10 @@ func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) 
 		}
 	}
 
-	analyzeResults(logPrefix+" ("+mode+")", results)
+	res := analyzeResults(logPrefix+" ("+mode+")", results)
+	res.Protocol = protocol
+	res.Mode = mode
+	res.RRDCached = tc.config.Server.RRDCachedAddr != ""
 
 	// Clean up SVG files
 	if files, err := filepath.Glob(filepath.Join(tc.outputDir, "*.svg")); err == nil && len(files) > 0 {
@@ -494,5 +552,5 @@ func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) 
 		}
 	}
 
-	return nil
+	return res, nil
 }
