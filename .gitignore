@@ -6,3 +6,7 @@ config.json
 .venv
 .pytest_cache
 __pycache__
+
+.infra/rrd-data
+
+todo.md

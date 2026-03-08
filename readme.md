@@ -27,7 +27,7 @@
 
 Сборку и развертывание collectd производить по [этой инструкции](https://github.com/Pavelavl/cpu-http-monitor). 
 
-Примеры конфигураций находятся [тут](collectd/):
+Примеры конфигураций находятся [тут](.infra/collectd/):
 
 ```
 collectd/

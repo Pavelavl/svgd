@@ -24,7 +24,7 @@ SVG_FILES = \
 	$(EXAMPLES_DIR)/disk.svg \
 	$(EXAMPLES_DIR)/pgsql.svg
 
-.PHONY: all build build-backend build-tests clean run run-backend generate submodule
+.PHONY: all build build-backend build-tests clean run run-backend generate submodule test test-e2e test-load test-ui install docker-build docker-up docker-down docker-logs docker-test docker-test-ui
 
 # Build everything (default)
 all: build
@@ -43,8 +43,13 @@ build-tests: metrics_collector
 metrics_collector: ./tests/metrics_collector.c
 	$(CC) $(CFLAGS) -o ./tests/bin/metrics_collector ./tests/metrics_collector.c
 
-test:
-	cd tests && go test -v ./...
+test-e2e:
+	cd tests && go test -v ./e2e/...
+
+test-load:
+	cd tests && go test -v ./load/...
+
+test: test-e2e test-load
 
 test-ui:
 	./tests/ui/run_tests.sh -v
@@ -79,3 +84,22 @@ install:
 
 run-test-postgres:
 	sudo docker run --name some-postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d bitnami/postgresql
+
+# Docker targets
+docker-build:
+	docker compose build
+
+docker-up:
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+docker-logs:
+	docker compose logs -f
+
+docker-test:
+	docker compose --profile test run --rm test-runner make test
+
+docker-test-ui:
+	docker compose --profile test run --rm test-runner make test-ui

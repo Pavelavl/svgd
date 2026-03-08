@@ -2,7 +2,6 @@ package benchmarks
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -125,34 +124,6 @@ func NewBenchmarkConfig() *BenchmarkConfig {
 		LogDir:      "logs",
 		ConfigFile:  "../../config.json",
 	}
-}
-
-func (bc *BenchmarkConfig) LoadConfig() error {
-	data, err := os.ReadFile(bc.ConfigFile)
-	if err != nil {
-		return fmt.Errorf("failed to read config: %w", err)
-	}
-
-	if err := json.Unmarshal(data, &bc.config); err != nil {
-		return fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	return nil
-}
-
-func (bc *BenchmarkConfig) UpdateConfig() error {
-	if bc.UseRRDCached {
-		bc.config.Server.RRDCachedAddr = "unix:/var/run/rrdcached.sock"
-	} else {
-		bc.config.Server.RRDCachedAddr = ""
-	}
-
-	data, err := json.MarshalIndent(bc.config, "", "\t")
-	if err != nil {
-		return fmt.Errorf("failed to marshal config: %w", err)
-	}
-
-	return os.WriteFile(bc.ConfigFile, data, 0644)
 }
 
 func (bc *BenchmarkConfig) StartDaemon(bin string) (*exec.Cmd, error) {
@@ -619,8 +590,6 @@ func printBenchmarkComparisonTable(rows []*ComparisonRow) {
 }
 
 func Test_BenchmarkDirectVsCached(t *testing.T) {
-	// t.Skip()
-
 	os.MkdirAll("results", 0755)
 	os.MkdirAll("logs", 0755)
 
@@ -663,16 +632,6 @@ func Test_BenchmarkDirectVsCached(t *testing.T) {
 			bc := NewBenchmarkConfig()
 			bc.UseRRDCached = tt.usecache
 			bc.MetricsFile = filepath.Join(bc.OutputDir, fmt.Sprintf("%s_%s_metrics.csv", tt.metricFilePrefix, tt.p))
-
-			if err := bc.LoadConfig(); err != nil {
-				t.Fatalf("Failed to load config: %v", err)
-			}
-
-			bc.config.Server.TCPPort++
-
-			if err := bc.UpdateConfig(); err != nil {
-				t.Fatalf("Failed to update config: %v", err)
-			}
 
 			daemonCmd, err := bc.StartDaemon(fmt.Sprintf("../bin/%s", tt.p))
 			if err != nil {

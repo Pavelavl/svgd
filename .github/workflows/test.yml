@@ -1,0 +1,79 @@
+name: Tests
+
+on:
+  push:
+    branches: [master, main, develop]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            librrd-dev libduktape-dev \
+            gcc make jq \
+            golang-go \
+            python3 python3-venv python3-pip \
+            lsof flock curl procps
+
+      - name: Setup Go environment
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tests/go.sum
+
+      - name: Download Go dependencies
+        run: |
+          cd tests && go mod download
+
+      - name: Build application
+        run: make build
+
+      - name: Build test utilities
+        run: make build-tests
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install -r tests/ui/requirements.txt
+
+      - name: Run E2E tests
+        run: |
+          . .venv/bin/activate
+          make test-e2e
+
+      - name: Run Load tests
+        run: |
+          . .venv/bin/activate
+          make test-load
+
+      - name: Start servers for UI tests
+        run: |
+          ./bin/svgd ./config.json &
+          ./bin/svgd-gate 127.0.0.1 8081 8080 ./gate/static &
+          sleep 3
+
+      - name: Run UI tests
+        run: |
+          . .venv/bin/activate
+          make test-ui
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: |
+            tests/results/
+            tests/logs/
+          retention-days: 7

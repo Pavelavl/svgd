@@ -60,7 +60,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
-	if err := tc.readConfigPort(); err != nil {
+	if err := tc.readConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
@@ -79,7 +79,6 @@ func TestMain(m *testing.M) {
 }
 
 func Test_HTTPVsLSRP(t *testing.T) {
-	t.Skip()
 	tests := []struct {
 		binary    string
 		logPrefix string
@@ -100,7 +99,6 @@ func Test_HTTPVsLSRP(t *testing.T) {
 	var allResults []*TestResult
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("%s_%s", tt.logPrefix, tt.mode), func(t *testing.T) {
-			tc.config.Server.TCPPort += 1
 			if !tt.rrdcached {
 				tc.config.Server.RRDCachedAddr = ""
 			} else {
@@ -188,7 +186,7 @@ type config struct {
 	} `json:"metrics"`
 }
 
-func (tc *testCase) readConfigPort() error {
+func (tc *testCase) readConfig() error {
 	data, err := os.ReadFile(tc.configFile)
 	if err != nil {
 		return fmt.Errorf("failed to read %s: %v", tc.configFile, err)
