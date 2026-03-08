@@ -300,7 +300,7 @@ curl http://localhost:8080/network/eth0?period=7200
 | `cpu` | Общая загрузка CPU (%) | — | [cpu.svg](examples/cpu.svg) |
 | `cpu/process/<name>` | CPU time процесса | process_name | [cpu_process_systemd.svg](examples/cpu_process_systemd.svg) |
 | `ram` | Общая загрузка памяти (%) | — | [ram.svg](examples/ram.svg) |
-| `ram/process/<name>` | Память процесса (MB) | process_name | [ram_process_postgres.svg](examples/ram_process_postgres.svg) |
+| `ram/process/<name>` | Память процесса (MB) | process_name | [ram_process_systemd.svg](examples/ram_process_systemd.svg) |
 | `network/<interface>` | Сетевой трафик (B/s) | interface | [network.svg](examples/network.svg) |
 | `disk/<disk>` | Дисковые операции (ops/s) | disk | [disk.svg](examples/disk.svg) |
 | `postgresql/connections` | Подключения к PostgreSQL | — | [pgsql.svg](examples/pgsql.svg) |

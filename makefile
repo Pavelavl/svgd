@@ -61,9 +61,9 @@ generate:
 	$(CLIENT_BIN) localhost:$(PORT) "endpoint=cpu&period=$(PERIOD)" > examples/cpu.svg && \
 	$(CLIENT_BIN) localhost:$(PORT) "endpoint=cpu/process/systemd&period=$(PERIOD)" > examples/cpu_process_systemd.svg && \
 	$(CLIENT_BIN) localhost:$(PORT) "endpoint=ram&period=$(PERIOD)" > examples/ram.svg && \
-	$(CLIENT_BIN) localhost:$(PORT) "endpoint=ram/process/postgres&period=$(PERIOD)" > examples/ram_process_postgres.svg && \
-	$(CLIENT_BIN) localhost:$(PORT) "endpoint=network/eth0&period=$(PERIOD)" > examples/network.svg && \
-	$(CLIENT_BIN) localhost:$(PORT) "endpoint=disk/sdc&period=$(PERIOD)" > examples/disk.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=ram/process/systemd&period=$(PERIOD)" > examples/ram_process_systemd.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=network/wlp2s0&period=$(PERIOD)" > examples/network.svg && \
+	$(CLIENT_BIN) localhost:$(PORT) "endpoint=disk/nvme0n1&period=$(PERIOD)" > examples/disk.svg && \
 	$(CLIENT_BIN) localhost:$(PORT) "endpoint=postgresql/connections&period=$(PERIOD)" > examples/pgsql.svg
 
 clean:
@@ -76,3 +76,6 @@ submodule:
 install:
 	python -m venv .venv
 	.venv/bin/pip install -r tests/ui/requirements.txt
+
+run-test-postgres:
+	sudo docker run --name some-postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d bitnami/postgresql
