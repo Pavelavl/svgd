@@ -1,14 +1,14 @@
 {
 	"server": {
-		"tcp_port": 8081,
+		"tcp_port": 8085,
 		"allowed_ips": "127.0.0.1",
-		"rrdcached_addr": ""
+		"rrdcached_addr": "unix:/var/run/rrdcached.sock"
 	},
 	"rrd": {
 		"base_path": "/opt/collectd/var/lib/collectd/rrd/localhost"
 	},
 	"js": {
-		"script_path": "/home/workerpool/svgd/scripts/generate_cpu_svg.js"
+		"script_path": "./src/scripts/generate_cpu_svg.js"
 	},
 	"metrics": [
 		{
@@ -24,7 +24,7 @@
 			"endpoint": "cpu/process",
 			"rrd_path": "processes-%s/ps_cputime.rrd",
 			"requires_param": true,
-			"title": "CPU Time for %s",
+			"title": "CPU Time",
 			"y_label": "CPU Time (seconds)",
 			"is_percentage": false,
 			"value_format": "%.2f",
@@ -44,7 +44,7 @@
 			"endpoint": "ram/process",
 			"rrd_path": "processes-%s/ps_rss.rrd",
 			"requires_param": true,
-			"title": "Memory Usage for %s",
+			"title": "Memory Usage",
 			"y_label": "Memory (MB)",
 			"is_percentage": false,
 			"value_format": "%.1f",
@@ -56,17 +56,19 @@
 			"endpoint": "network",
 			"rrd_path": "interface-%s/if_octets.rrd",
 			"requires_param": true,
-			"title": "Network Traffic for %s",
-			"y_label": "Traffic (B/s)",
+			"title": "Network Traffic",
+			"y_label": "Traffic (Mbit/s)",
 			"is_percentage": false,
 			"value_format": "%.2f",
-			"param_name": "interface"
+			"param_name": "interface",
+			"transform_type": "divide",
+			"transform_divisor": 125000
 		},
 		{
 			"endpoint": "disk",
 			"rrd_path": "disk-%s/disk_ops.rrd",
 			"requires_param": true,
-			"title": "Disk Operations for %s",
+			"title": "Disk Operations",
 			"y_label": "Operations/s",
 			"is_percentage": false,
 			"value_format": "%.1f",
@@ -74,7 +76,7 @@
 		},
 		{
 			"endpoint": "postgresql/connections",
-			"rrd_path": "postgresql-iqchannels/pg_numbackends.rrd",
+			"rrd_path": "postgresql-test/pg_numbackends.rrd",
 			"requires_param": false,
 			"title": "PostgreSQL Connections",
 			"y_label": "Connections",
@@ -102,15 +104,6 @@
 			"transform_divisor": 3600
 		},
 		{
-			"endpoint": "swap/usage",
-			"rrd_path": "swap/percent-used.rrd",
-			"requires_param": false,
-			"title": "Swap Usage",
-			"y_label": "Usage (%)",
-			"is_percentage": true,
-			"value_format": "%.1f"
-		},
-		{
 			"endpoint": "swap/bytes",
 			"rrd_path": "swap/swap-used.rrd",
 			"requires_param": false,
@@ -123,13 +116,15 @@
 		},
 		{
 			"endpoint": "filesystem",
-			"rrd_path": "df-mnt-%s/percent_bytes-used.rrd",
+			"rrd_path": "df-%s/df_complex-used.rrd",
 			"requires_param": true,
-			"title": "Filesystem Usage (mnt-%s)",
-			"y_label": "Usage (%)",
-			"is_percentage": true,
-			"value_format": "%.1f",
-			"param_name": "fs_name"
+			"title": "Filesystem Usage",
+			"y_label": "Usage (GB)",
+			"is_percentage": false,
+			"value_format": "%.2f",
+			"param_name": "mount_point",
+			"transform_type": "divide",
+			"transform_divisor": 1073741824
 		}
 	]
 }

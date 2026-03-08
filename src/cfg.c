@@ -1,6 +1,48 @@
 #include "../include/cfg.h"
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
+
+// Escape special characters for JSON string
+static size_t json_escape(const char *src, char *dest, size_t dest_size) {
+    if (!src || !dest || dest_size == 0) return 0;
+
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j < dest_size - 1; i++) {
+        unsigned char c = src[i];
+
+        if (c == '"' || c == '\\') {
+            if (j < dest_size - 2) {
+                dest[j++] = '\\';
+                dest[j++] = c;
+            }
+        } else if (c == '\n') {
+            if (j < dest_size - 2) {
+                dest[j++] = '\\';
+                dest[j++] = 'n';
+            }
+        } else if (c == '\r') {
+            if (j < dest_size - 2) {
+                dest[j++] = '\\';
+                dest[j++] = 'r';
+            }
+        } else if (c == '\t') {
+            if (j < dest_size - 2) {
+                dest[j++] = '\\';
+                dest[j++] = 't';
+            }
+        } else if (iscntrl(c)) {
+            // Other control characters as \uXXXX
+            if (j < dest_size - 7) {
+                j += snprintf(dest + j, dest_size - j, "\\u%04x", c);
+            }
+        } else {
+            dest[j++] = c;
+        }
+    }
+    dest[j] = '\0';
+    return j;
+}
 
 static void set_string_field(duk_context *ctx, const char *field, char *dest, size_t dest_size, const char *default_val) {
     if (duk_get_prop_string(ctx, -1, field)) {
@@ -225,33 +267,43 @@ char* generate_metrics_json(Config *config) {
     size_t buffer_size = 1024 + config->metrics_count * 512;
     char *json = malloc(buffer_size);
     if (!json) return NULL;
-    
+
+    // Buffer for escaped strings
+    char escaped[512];
+
     size_t offset = 0;
-    offset += snprintf(json + offset, buffer_size - offset, 
+    offset += snprintf(json + offset, buffer_size - offset,
                       "{\"version\":\"1.0\",\"metrics\":[");
-    
+
     for (int i = 0; i < config->metrics_count; i++) {
         MetricConfig *m = &config->metrics[i];
-        
+
         if (i > 0) {
             offset += snprintf(json + offset, buffer_size - offset, ",");
         }
-        
+
+        json_escape(m->endpoint, escaped, sizeof(escaped));
         offset += snprintf(json + offset, buffer_size - offset,
             "{\"endpoint\":\"%s\",\"requires_param\":%s",
-            m->endpoint, m->requires_param ? "true" : "false");
-        
+            escaped, m->requires_param ? "true" : "false");
+
         if (m->requires_param) {
+            json_escape(m->param_name, escaped, sizeof(escaped));
             offset += snprintf(json + offset, buffer_size - offset,
-                ",\"param_name\":\"%s\"", m->param_name);
+                ",\"param_name\":\"%s\"", escaped);
         }
-        
+
+        json_escape(m->title, escaped, sizeof(escaped));
         offset += snprintf(json + offset, buffer_size - offset,
-            ",\"title\":\"%s\",\"y_label\":\"%s\",\"is_percentage\":%s",
-            m->title, m->y_label, m->is_percentage ? "true" : "false");
-        
+            ",\"title\":\"%s\"", escaped);
+
+        json_escape(m->y_label, escaped, sizeof(escaped));
+        offset += snprintf(json + offset, buffer_size - offset,
+            ",\"y_label\":\"%s\",\"is_percentage\":%s",
+            escaped, m->is_percentage ? "true" : "false");
+
         offset += snprintf(json + offset, buffer_size - offset, "}");
-        
+
         if (offset >= buffer_size - 512) {
             // Buffer too small, reallocate
             buffer_size *= 2;
@@ -263,8 +315,8 @@ char* generate_metrics_json(Config *config) {
             json = new_json;
         }
     }
-    
+
     offset += snprintf(json + offset, buffer_size - offset, "]}");
-    
+
     return json;
 }
