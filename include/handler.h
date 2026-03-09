@@ -26,6 +26,8 @@ typedef struct {
  * @param endpoint Endpoint path (e.g., "cpu", "cpu/process/nginx")
  * @param query Query string (may be NULL)
  * @param period Time period in seconds
+ * @param width SVG width in pixels (0 for default)
+ * @param height SVG height in pixels (0 for default)
  * @param use_cache Whether to use RRD data caching
  * @return Handler result (caller must free with handler_result_free)
  */
@@ -33,6 +35,8 @@ handler_result_t* handler_process(Config *config,
                                   const char *endpoint,
                                   const char *query,
                                   int period,
+                                  int width,
+                                  int height,
                                   int use_cache);
 
 /**

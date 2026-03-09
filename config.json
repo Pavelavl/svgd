@@ -12,7 +12,7 @@
 		"base_path": "/opt/collectd/var/lib/collectd/rrd/localhost"
 	},
 	"js": {
-		"script_path": "./src/scripts/generate_cpu_svg.js"
+		"script_path": "./src/scripts/generate_svg.js"
 	},
 	"metrics": [
 		{
@@ -101,7 +101,7 @@
 			"rrd_path": "uptime/uptime.rrd",
 			"requires_param": false,
 			"title": "System Uptime",
-			"y_label": "Uptime (hours)",
+			"y_label": "hours",
 			"is_percentage": false,
 			"value_format": "%.1f",
 			"transform_type": "divide",

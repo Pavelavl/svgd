@@ -4,11 +4,28 @@ function generateSVG(series, options) {
         return '<svg width="800" height="450" xmlns="http://www.w3.org/2000/svg"><text x="400" y="225" text-anchor="middle" fill="#ef4444" font-size="14">Error: Invalid input</text></svg>';
     }
 
-    var width = 800;
-    var height = 450;
-    var margin = { top: 45, right: 40, bottom: 80, left: 75 };
+    var panelType = options.panelType || 'chart';
+
+    if (panelType === 'stat') {
+        return generateStatSVG(series, options);
+    }
+
+    // Responsive dimensions
+    var width = options.width || 800;
+    var height = options.height || 450;
+    var margin = {
+        top: Math.max(30, height * 0.08),
+        right: Math.max(30, width * 0.05),
+        bottom: Math.max(65, height * 0.18),
+        left: Math.max(50, width * 0.08)
+    };
     var graphWidth = width - margin.left - margin.right;
     var graphHeight = height - margin.top - margin.bottom;
+
+    // Adaptive font sizes
+    var titleSize = Math.max(12, Math.min(18, width * 0.02));
+    var labelSize = Math.max(10, Math.min(14, width * 0.014));
+    var tickSize = Math.max(10, Math.min(12, width * 0.012));
 
     // Light theme colors
     var colors = {
@@ -21,7 +38,7 @@ function generateSVG(series, options) {
     };
 
     var svg = [];
-    svg.push('<svg viewBox="0 0 ', width, ' ', height, '" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; width: 100%; height: 100%;" preserveAspectRatio="xMidYMid meet">');
+    svg.push('<svg width="100%" height="100%" viewBox="0 0 ', width, ' ', height, '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">');
     svg.push('<rect width="100%" height="100%" fill="', colors.background, '"/>');
 
     if (!series || !Array.isArray(series) || series.length === 0) {
@@ -292,7 +309,7 @@ function generateSVG(series, options) {
     svg.push('</g>');
 
     // Title
-    svg.push('<text x="', width / 2, '" y="25" text-anchor="middle" font-size="16" font-weight="600" fill="', colors.textPrimary, '">', title, '</text>');
+    svg.push('<text x="', width / 2, '" y="25" text-anchor="middle" font-size="', titleSize, '" font-weight="600" fill="', colors.textPrimary, '">', title, '</text>');
     
     // Y-axis label
     svg.push('<text x="20" y="', height / 2, '" text-anchor="middle" transform="rotate(-90,20,', height / 2, ')" font-size="12" font-weight="500" fill="', colors.text, '">', yLabel, '</text>');
@@ -342,5 +359,150 @@ function generateSVG(series, options) {
     svg.push('</g>');
     svg.push('</svg>');
 
+    return svg.join('');
+}
+
+function generateStatSVG(series, options) {
+    var width = options.width || 300;
+    var height = options.height || 150;
+
+    var colors = {
+        background: '#ffffff',
+        border: '#e2e8f0',
+        text: '#4a5568',
+        textPrimary: '#1a202c',
+        accent: '#3b82f6',
+        positive: '#10b981',
+        negative: '#ef4444',
+        neutral: '#6b7280',
+        sparkline: '#3b82f6'
+    };
+
+    // Adaptive sizes
+    var valueSize = Math.max(18, Math.min(32, height * 0.25));
+    var titleSize = Math.max(10, Math.min(14, height * 0.1));
+    var sparklineHeight = Math.max(12, Math.min(30, height * 0.2));
+    var sparklineWidth = Math.max(40, Math.min(100, width * 0.3));
+
+    var title = options.title || 'Metric';
+    var yLabel = options.yLabel || '';
+    var valueFormat = options.valueFormat || '%.2f';
+    var transformType = options.transformType || 'none';
+    var transformDivisor = options.transformDivisor || 1.0;
+
+    // Collect all data points
+    var allData = [];
+    for (var si = 0; si < series.length; si++) {
+        var s = series[si];
+        if (!s.data || !Array.isArray(s.data)) continue;
+        for (var di = 0; di < s.data.length; di++) {
+            var d = s.data[di];
+            if (!isNaN(d.value) && d.value >= 0) {
+                var val = d.value;
+                if (transformType === 'divide') {
+                    val = val / transformDivisor;
+                }
+                allData.push({ timestamp: d.timestamp, value: val });
+            }
+        }
+    }
+
+    if (allData.length === 0) {
+        return '<svg width="100%" height="100%" viewBox="0 0 ' + width + ' ' + height + '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">' +
+            '<rect width="100%" height="100%" fill="' + colors.background + '"/>' +
+            '<text x="' + (width/2) + '" y="' + (height/2) + '" text-anchor="middle" fill="#ef4444" font-size="12">No data</text></svg>';
+    }
+
+    // Sort by timestamp
+    allData.sort(function(a, b) { return a.timestamp - b.timestamp; });
+
+    // Get current (last) and previous (first) values
+    var currentValue = allData[allData.length - 1].value;
+    var firstValue = allData[0].value;
+
+    // Calculate trend
+    var trend = currentValue - firstValue;
+    var trendPercent = firstValue !== 0 ? (trend / firstValue * 100) : 0;
+
+    // Format value
+    var valueFormatter;
+    if (valueFormat === '%d' || valueFormat === '%.0f') {
+        valueFormatter = function(v) { return Math.round(v).toString(); };
+    } else if (valueFormat === '%.1f') {
+        valueFormatter = function(v) { return v.toFixed(1); };
+    } else {
+        valueFormatter = function(v) { return v.toFixed(2); };
+    }
+
+    var formattedValue = valueFormatter(currentValue);
+    var formattedTrend = (trend >= 0 ? '+' : '') + valueFormatter(Math.abs(trend));
+    var formattedTrendPercent = (trendPercent >= 0 ? '+' : '') + trendPercent.toFixed(1) + '%';
+
+    // Determine trend color and arrow
+    var trendColor = colors.neutral;
+    var trendArrow = '→';
+    if (trend > 0) {
+        trendColor = colors.positive;
+        trendArrow = '↑';
+    } else if (trend < 0) {
+        trendColor = colors.negative;
+        trendArrow = '↓';
+    }
+
+    // Build sparkline path (adaptive area at bottom)
+    var sparklineX = 10;
+    var sparklineY = height - sparklineHeight - 10;
+
+    var minVal = Infinity, maxVal = -Infinity;
+    for (var i = 0; i < allData.length; i++) {
+        if (allData[i].value < minVal) minVal = allData[i].value;
+        if (allData[i].value > maxVal) maxVal = allData[i].value;
+    }
+    var valueRange = maxVal - minVal;
+    if (valueRange === 0) valueRange = 1;
+
+    var timeRange = allData[allData.length - 1].timestamp - allData[0].timestamp;
+    if (timeRange === 0) timeRange = 1;
+
+    var pathPoints = [];
+    for (var i = 0; i < allData.length; i++) {
+        var x = sparklineX + (allData[i].timestamp - allData[0].timestamp) / timeRange * sparklineWidth;
+        var y = sparklineY + sparklineHeight - (allData[i].value - minVal) / valueRange * sparklineHeight;
+        if (i === 0) {
+            pathPoints.push('M', x.toFixed(2), ',', y.toFixed(2));
+        } else {
+            pathPoints.push(' L', x.toFixed(2), ',', y.toFixed(2));
+        }
+    }
+
+    // Build SVG
+    var svg = [];
+    svg.push('<svg width="100%" height="100%" viewBox="0 0 ', width, ' ', height, '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">');
+    svg.push('<rect width="100%" height="100%" fill="', colors.background, '" stroke="', colors.border, '" stroke-width="1" rx="4"/>');
+
+    // Title
+    svg.push('<text x="12" y="22" font-size="', titleSize, '" font-weight="600" fill="', colors.text, '">', title, '</text>');
+
+    // Main value
+    svg.push('<text x="12" y="', (height * 0.45).toFixed(0), '" font-size="', valueSize, '" font-weight="700" fill="', colors.textPrimary, '">', formattedValue);
+    if (yLabel) {
+        svg.push('<tspan font-size="12" font-weight="400" fill="', colors.text, '"> ', yLabel, '</tspan>');
+    }
+    svg.push('</text>');
+
+    // Trend indicator
+    svg.push('<text x="12" y="', (height * 0.6).toFixed(0), '" font-size="12" font-weight="500">');
+    svg.push('<tspan fill="', trendColor, '">', trendArrow, ' ', formattedTrend);
+    if (yLabel) {
+        svg.push(' (', formattedTrendPercent, ')');
+    }
+    svg.push('</tspan></text>');
+
+    // Sparkline
+    if (allData.length > 1) {
+        svg.push('<path d="', pathPoints.join(''), '" stroke="', colors.sparkline, '" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>');
+    }
+
+    svg.push('</svg>');
     return svg.join('');
 }

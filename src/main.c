@@ -129,8 +129,8 @@ static void run_http_server(int port) {
             fprintf(stderr, "HTTP: %s %s (period=%d)\n", req.method, req.path, period);
         }
 
-        /* Process request */
-        handler_result_t *result = handler_process(&global_config, endpoint, req.query, period, 0);
+        /* Process request (width/height will be parsed from query in handler) */
+        handler_result_t *result = handler_process(&global_config, endpoint, req.query, period, 0, 0, 0);
 
         if (result && result->status == 0) {
             http_send_response(client_sock,
@@ -174,8 +174,22 @@ static int lsrp_handler(lsrp_request_t *req, lsrp_response_t *resp) {
     if (period <= 0) period = 3600;
     free(period_str);
 
-    /* Process request with caching enabled */
-    handler_result_t *result = handler_process(&global_config, endpoint, NULL, period, 1);
+    /* Parse width/height from LSRP params */
+    int width = 0;
+    int height = 0;
+    char *width_str = handler_get_param(req->params, "width");
+    char *height_str = handler_get_param(req->params, "height");
+    if (width_str) {
+        width = atoi(width_str);
+        free(width_str);
+    }
+    if (height_str) {
+        height = atoi(height_str);
+        free(height_str);
+    }
+
+    /* Process request with caching enabled (width/height 0 = use defaults) */
+    handler_result_t *result = handler_process(&global_config, endpoint, NULL, period, width, height, 1);
     free(endpoint);
 
     if (result && result->status == 0) {

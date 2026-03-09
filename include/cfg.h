@@ -24,6 +24,7 @@ typedef struct {
     
     // Additional metadata (passed to JS)
     char value_format[32];        // e.g., "%.1f", "%.2f", "%d"
+    char panel_type[16];          // "chart" (default) or "stat"
 } MetricConfig;
 
 typedef struct {

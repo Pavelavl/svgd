@@ -64,13 +64,13 @@ services:
 
   # PostgreSQL for database metrics (optional)
   postgres:
-    image: bitnami/postgres:16
+    image: bitnami/postgresql:latest
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: mysecretpassword
       POSTGRES_DB: test
     ports:
-      - "6532:5432"
+      - "5432:5432"
     profiles:
       - full
       - test

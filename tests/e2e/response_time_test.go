@@ -577,7 +577,7 @@ func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) 
 
 	// Create client
 	var (
-		client   interface{}
+		client     interface{}
 		clientPort int
 	)
 	endpoint := tc.endpoint
@@ -655,4 +655,70 @@ func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) 
 	}
 
 	return res, nil
+}
+
+// Test_StatPanelSVG verifies stat panel generates valid SVG with expected elements
+func Test_StatPanelSVG(t *testing.T) {
+	// Skip if no uptime RRD file
+	uptimeRrd := filepath.Join(tc.config.RRD.BasePath, "uptime/uptime.rrd")
+	if _, err := os.Stat(uptimeRrd); os.IsNotExist(err) {
+		t.Skip("Skipping: uptime RRD file not found")
+	}
+
+	// Create temp config with HTTP protocol for simpler testing
+	testConfig := tc.config
+	testConfig.Server.Protocol = "http"
+	testConfigData, err := json.MarshalIndent(testConfig, "", "\t")
+	if err != nil {
+		t.Fatalf("Failed to marshal test config: %v", err)
+	}
+	testConfigFile := filepath.Join(os.TempDir(), fmt.Sprintf("svgd-stat-test-%d.json", time.Now().UnixNano()))
+	if err := os.WriteFile(testConfigFile, testConfigData, 0644); err != nil {
+		t.Fatalf("Failed to write test config: %v", err)
+	}
+	defer os.Remove(testConfigFile)
+
+	// Start backend
+	backendPath := binPath("svgd")
+	backendCmd := exec.Command(backendPath, testConfigFile)
+	backendCmd.Dir = repoRoot
+	if err := backendCmd.Start(); err != nil {
+		t.Fatalf("Failed to start backend: %v", err)
+	}
+	defer func() {
+		backendCmd.Process.Signal(os.Interrupt)
+		backendCmd.Wait()
+	}()
+
+	time.Sleep(2 * time.Second)
+
+	// Request stat endpoint via HTTP
+	client, err := http.NewClient("localhost", tc.config.Server.TCPPort)
+	if err != nil {
+		t.Fatalf("Failed to create HTTP client: %v", err)
+	}
+
+	resp, err := client.Send("system/uptime?period=3600")
+	if err != nil {
+		t.Fatalf("Failed to request stat endpoint: %v", err)
+	}
+
+	if resp.Status != 0 {
+		t.Fatalf("Request failed with status %d: %s", resp.Status, string(resp.Data))
+	}
+
+	// Verify SVG structure
+	svg := string(resp.Data)
+
+	// Check title presence
+	if !strings.Contains(svg, "System Uptime") {
+		t.Error("Stat panel should contain title 'System Uptime'")
+	}
+
+	// Check sparkline path
+	if !strings.Contains(svg, `<path d="M`) {
+		t.Error("Stat panel should contain sparkline path")
+	}
+
+	t.Logf("Stat panel SVG validated successfully (%d bytes)", len(resp.Data))
 }

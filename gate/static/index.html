@@ -64,6 +64,10 @@
             padding: 1rem;
             transition: all 0.3s;
             position: relative;
+            grid-column: span 2;
+            min-height: 200px;
+            display: flex;
+            flex-direction: column;
         }
 
         .panel:hover {
@@ -87,9 +91,10 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 1rem;
-            padding-bottom: 0.75rem;
+            margin-bottom: 0.5rem;
+            padding-bottom: 0.5rem;
             border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
         }
 
         .panel-title {
@@ -165,10 +170,11 @@
         }
 
         .graph-container {
-            min-height: 300px;
+            flex: 1;
+            min-height: 150px;
             display: flex;
-            align-items: center;
-            justify-content: center;
+            align-items: stretch;
+            justify-content: stretch;
             background: var(--bg-secondary);
             border-radius: 4px;
             overflow: hidden;
@@ -177,14 +183,56 @@
 
         .graph-container svg {
             width: 100%;
-            height: auto;
+            height: 100%;
+            display: block;
         }
 
-        .grid-layout {
+        .panel.stat-panel .graph-container {
+            min-height: 100px;
+        }
+
+        .panels-container {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            grid-template-columns: repeat(4, 1fr);
             gap: 1rem;
             margin-top: 1rem;
+            grid-auto-flow: dense;
+        }
+
+        .panel[data-cols="1"] { grid-column: span 1; }
+        .panel[data-cols="2"] { grid-column: span 2; }
+        .panel[data-cols="3"] { grid-column: span 3; }
+        .panel[data-cols="4"] { grid-column: span 4; }
+
+        .panel.dragging {
+            opacity: 0.5;
+            transform: scale(1.02);
+            z-index: 1000;
+            cursor: grabbing;
+        }
+
+        .panel.drag-over {
+            border: 2px dashed var(--accent-blue);
+        }
+
+        .panel-resize-handle {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 20px;
+            height: 20px;
+            cursor: se-resize;
+            opacity: 0;
+            transition: opacity 0.2s;
+            background: linear-gradient(135deg, transparent 50%, var(--text-secondary) 50%);
+        }
+
+        .panel:hover .panel-resize-handle {
+            opacity: 0.5;
+        }
+
+        .panel-resize-handle:hover {
+            opacity: 1;
         }
 
         .status-dot {
@@ -679,7 +727,7 @@
             </div>
         </div>
 
-        <div class="grid-layout" id="panelsContainer"></div>
+        <div class="panels-container" id="panelsContainer"></div>
     </div>
 
     <div class="toast-container" id="toastContainer"></div>

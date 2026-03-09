@@ -32,12 +32,14 @@ void svg_prewarm_context(void);
  * Generate SVG from metric data
  * @param script_path Path to JavaScript file
  * @param data Metric data to render
+ * @param width SVG width in pixels
+ * @param height SVG height in pixels
  * @return Allocated SVG string (caller must free), or NULL on error
  */
-char* svg_generate(const char *script_path, MetricData *data);
+char* svg_generate(const char *script_path, MetricData *data, int width, int height);
 
 /* Compatibility aliases */
-#define generate_svg(ctx, path, data) svg_generate(path, data)
+#define generate_svg(ctx, path, data, width, height) svg_generate(path, data, width, height)
 #define init_js_cache svg_init_cache
 #define free_js_cache svg_free_cache
 #define prewarm_thread_context svg_prewarm_context

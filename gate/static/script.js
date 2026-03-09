@@ -9,9 +9,16 @@ const config = {
     availableMetrics: [] // Will be loaded dynamically
 };
 
+const gridConfig = {
+    columns: 4,
+    columnWidth: 280,
+    gap: 16,
+    minPanelHeight: 150
+};
+
 const defaultPanels = [
-    { id: 'cpu', endpoint: 'cpu', title: 'CPU Total Usage' },
-    { id: 'ram', endpoint: 'ram', title: 'RAM Total Usage' }
+    { id: 'cpu', endpoint: 'cpu', title: 'CPU Total Usage', cols: 2 },
+    { id: 'ram', endpoint: 'ram', title: 'RAM Total Usage', cols: 2 }
 ];
 
 // Theme configuration for SVG
@@ -33,6 +40,8 @@ const svgThemes = {
 let refreshTimer = null;
 let refreshCountdown = 10;
 let searchTerm = '';
+let draggedPanelId = null;
+let resizeUpdateTimeout = null;
 
 // ===== Toast Notifications =====
 function showToast(message, type = 'info', duration = 3000) {
@@ -198,9 +207,11 @@ async function fetchAvailableMetrics() {
     }
 }
 
-async function fetchSVG(endpoint, period) {
+async function fetchSVG(endpoint, period, width, height) {
     try {
-        const url = `${config.apiBaseUrl}/${endpoint}?period=${period}`;
+        const w = width || 800;
+        const h = height || 450;
+        const url = `${config.apiBaseUrl}/${endpoint}?period=${period}&width=${w}&height=${h}`;
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -261,11 +272,27 @@ function getMetricInfo(endpoint) {
     return config.availableMetrics.find(m => m.endpoint === endpoint);
 }
 
+function isStatPanel(endpoint) {
+    const metric = config.availableMetrics.find(m => m.endpoint === endpoint);
+    return metric && metric.panel_type === 'stat';
+}
+
+function getDefaultCols(endpoint) {
+    return isStatPanel(endpoint) ? 1 : 2;
+}
+
 // ===== Panel Management =====
 function createPanel(panelConfig) {
+    const metricInfo = getMetricInfo(panelConfig.endpoint);
+    const isStat = metricInfo && metricInfo.panel_type === 'stat';
+    const cols = panelConfig.cols || (isStat ? 1 : 2);
+
     const panel = document.createElement('div');
-    panel.className = 'panel';
+    panel.className = isStat ? 'panel stat-panel' : 'panel';
     panel.id = `panel-${panelConfig.id}`;
+    panel.dataset.cols = cols;
+    panel.draggable = true;
+    panel.dataset.panelId = panelConfig.id;
 
     panel.innerHTML = `
         <div class="panel-header">
@@ -302,9 +329,141 @@ function createPanel(panelConfig) {
         <div class="graph-container" id="graph-${panelConfig.id}">
             <div class="loading"></div>
         </div>
+        <div class="panel-resize-handle" data-panel-id="${panelConfig.id}"></div>
     `;
 
+    // Apply saved height if exists
+    if (panelConfig.height) {
+        panel.style.height = panelConfig.height + 'px';
+    }
+
     return panel;
+}
+
+function initDragDrop(panelElement) {
+    panelElement.addEventListener('dragstart', (e) => {
+        draggedPanelId = e.target.dataset.panelId;
+        e.target.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', draggedPanelId);
+    });
+
+    panelElement.addEventListener('dragend', (e) => {
+        e.target.classList.remove('dragging');
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('drag-over'));
+        draggedPanelId = null;
+        savePanelsToStorage();
+    });
+
+    panelElement.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    });
+
+    panelElement.addEventListener('dragenter', (e) => {
+        e.preventDefault();
+        if (draggedPanelId && e.target.dataset.panelId !== draggedPanelId) {
+            e.target.closest('.panel')?.classList.add('drag-over');
+        }
+    });
+
+    panelElement.addEventListener('dragleave', (e) => {
+        e.target.closest('.panel')?.classList.remove('drag-over');
+    });
+
+    panelElement.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const targetId = e.target.closest('.panel')?.dataset.panelId;
+        if (draggedPanelId && targetId && draggedPanelId !== targetId) {
+            swapPanels(draggedPanelId, targetId);
+        }
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('drag-over'));
+    });
+}
+
+function swapPanels(draggedId, targetId) {
+    const draggedIdx = config.panels.findIndex(p => p.id === draggedId);
+    const targetIdx = config.panels.findIndex(p => p.id === targetId);
+
+    if (draggedIdx !== -1 && targetIdx !== -1) {
+        const [removed] = config.panels.splice(draggedIdx, 1);
+        config.panels.splice(targetIdx, 0, removed);
+        renderPanels();
+    }
+}
+
+function renderPanels() {
+    const container = document.getElementById('panelsContainer');
+    container.innerHTML = '';
+    config.panels.forEach(panelConfig => {
+        const panel = createPanel(panelConfig);
+        container.appendChild(panel);
+        initDragDrop(panel);
+        initResize(panel);
+    });
+    updateAllPanels();
+}
+
+// Panel Resize functionality
+function initResize(panelElement) {
+    const handle = panelElement.querySelector('.panel-resize-handle');
+    if (!handle) return;
+
+    let startX, startY, startCols, startHeight;
+    const panelId = panelElement.dataset.panelId;
+
+    handle.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        startX = e.clientX;
+        startY = e.clientY;
+        startCols = parseInt(panelElement.dataset.cols) || 2;
+        startHeight = panelElement.offsetHeight;
+
+        document.addEventListener('mousemove', onResize);
+        document.addEventListener('mouseup', stopResize);
+    });
+
+    function onResize(e) {
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+
+        // Calculate new column span
+        const colWidth = (panelElement.parentElement.offsetWidth / gridConfig.columns) + gridConfig.gap;
+        const deltaCols = Math.round(deltaX / colWidth);
+        const newCols = Math.max(1, Math.min(4, startCols + deltaCols));
+
+        // Update column span
+        if (newCols !== parseInt(panelElement.dataset.cols)) {
+            panelElement.dataset.cols = newCols;
+        }
+
+        // Update height (free-form with 50px steps)
+        const newHeight = Math.max(gridConfig.minPanelHeight, startHeight + deltaY);
+        panelElement.style.height = Math.round(newHeight / 50) * 50 + 'px';
+    }
+
+    function stopResize() {
+        document.removeEventListener('mousemove', onResize);
+        document.removeEventListener('mouseup', stopResize);
+
+        // Update config
+        const panelConfig = config.panels.find(p => p.id === panelId);
+        if (panelConfig) {
+            panelConfig.cols = parseInt(panelElement.dataset.cols);
+            panelConfig.height = panelElement.offsetHeight;
+            savePanelsToStorage();
+        }
+
+        // Debounce updateAllPanels to avoid spamming
+        if (resizeUpdateTimeout) {
+            clearTimeout(resizeUpdateTimeout);
+        }
+        resizeUpdateTimeout = setTimeout(() => {
+            updateAllPanels();
+        }, 300);
+    }
 }
 
 async function updatePanel(panelConfig) {
@@ -313,9 +472,13 @@ async function updatePanel(panelConfig) {
 
     if (!graphContainer) return;
 
+    const panel = document.getElementById(`panel-${panelConfig.id}`);
+    const width = panel ? panel.offsetWidth : 800;
+    const height = panel ? panel.offsetHeight - 60 : 450;
+
     graphContainer.innerHTML = '<div class="loading"></div>';
 
-    const result = await fetchSVG(panelConfig.endpoint, config.currentPeriod);
+    const result = await fetchSVG(panelConfig.endpoint, config.currentPeriod, width, height);
 
     if (result.success) {
         graphContainer.innerHTML = result.svg;
@@ -381,13 +544,13 @@ function addPanel(panelConfig) {
         return;
     }
 
-    config.panels.push(panelConfig);
-    const panelsContainer = document.getElementById('panelsContainer');
-    panelsContainer.appendChild(createPanel(panelConfig));
+    // Set default cols based on panel type
+    if (!panelConfig.cols) {
+        panelConfig.cols = getDefaultCols(panelConfig.endpoint);
+    }
 
-    updatePanel(panelConfig);
-    savePanelsToStorage();
-    updatePanelCount();
+    config.panels.push(panelConfig);
+    renderPanels();
     showToast('Panel added successfully', 'success');
 }
 
@@ -453,14 +616,7 @@ async function initializeDashboard() {
         config.panels = [...defaultPanels];
     }
 
-    const panelsContainer = document.getElementById('panelsContainer');
-    panelsContainer.innerHTML = '';
-
-    config.panels.forEach(panelConfig => {
-        panelsContainer.appendChild(createPanel(panelConfig));
-    });
-
-    updateAllPanels();
+    renderPanels();
     updatePanelCount();
     startRefreshTimer();
 }
@@ -832,7 +988,12 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        addPanel({ id, endpoint, title });
+        addPanel({
+            id,
+            endpoint,
+            title,
+            cols: isStatPanel(endpoint) ? 1 : 2
+        });
         closeModal('addPanelModal');
 
         document.getElementById('addPanelForm').reset();

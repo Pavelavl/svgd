@@ -283,6 +283,8 @@ curl http://localhost:8080/network/eth0?period=7200
 
 ## rrdcached
 
+Настройка rrdtool по [инструкции](https://github.com/Pavelavl/cpu-http-monitor).
+
 Для повышения производительности при работе с RRD-файлами:
 
 ```bash

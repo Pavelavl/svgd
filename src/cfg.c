@@ -106,7 +106,8 @@ static MetricConfig parse_metric_config(duk_context *ctx) {
     metric.value_multiplier = get_double_field(ctx, "value_multiplier", 1.0);
     metric.transform_divisor = get_double_field(ctx, "transform_divisor", 1.0);
     set_string_field(ctx, "value_format", metric.value_format, sizeof(metric.value_format), "%.2f");
-    
+    set_string_field(ctx, "panel_type", metric.panel_type, sizeof(metric.panel_type), "chart");
+
     return metric;
 }
 
@@ -309,6 +310,10 @@ char* generate_metrics_json(Config *config) {
         offset += snprintf(json + offset, buffer_size - offset,
             ",\"y_label\":\"%s\",\"is_percentage\":%s",
             escaped, m->is_percentage ? "true" : "false");
+
+        json_escape(m->panel_type, escaped, sizeof(escaped));
+        offset += snprintf(json + offset, buffer_size - offset,
+            ",\"panel_type\":\"%s\"", escaped);
 
         offset += snprintf(json + offset, buffer_size - offset, "}");
 

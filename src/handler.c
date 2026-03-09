@@ -93,11 +93,40 @@ handler_result_t* handler_process(Config *config,
                                   const char *endpoint,
                                   const char *query,
                                   int period,
+                                  int width,
+                                  int height,
                                   int use_cache) {
-    (void)query;  /* Reserved for future use */
     if (!config || !endpoint) {
         return create_error_result("Invalid parameters");
     }
+
+    /* Parse width/height from query string, use passed values as defaults */
+    int svg_width = width;
+    int svg_height = height;
+
+    if (query) {
+        char *width_str = handler_get_param(query, "width");
+        char *height_str = handler_get_param(query, "height");
+
+        if (width_str) {
+            svg_width = atoi(width_str);
+            free(width_str);
+        }
+
+        if (height_str) {
+            svg_height = atoi(height_str);
+            free(height_str);
+        }
+    }
+
+    /* Apply defaults and bounds checking */
+    if (svg_width <= 0) svg_width = 800;
+    if (svg_width < 200) svg_width = 200;
+    if (svg_width > 1600) svg_width = 1600;
+
+    if (svg_height <= 0) svg_height = 450;
+    if (svg_height < 120) svg_height = 120;
+    if (svg_height > 800) svg_height = 800;
 
     /* Special endpoint: metrics configuration */
     if (strcmp(endpoint, "_config/metrics") == 0) {
@@ -174,7 +203,7 @@ handler_result_t* handler_process(Config *config,
 
     /* Generate SVG */
     data->metric_config = metric;
-    char *svg = generate_svg(global_ctx, config->js_script_path, data);
+    char *svg = generate_svg(global_ctx, config->js_script_path, data, svg_width, svg_height);
     free_metric_data(data);
 
     if (!svg) {

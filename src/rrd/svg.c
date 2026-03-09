@@ -95,7 +95,7 @@ void svg_prewarm_context(void) {
     get_thread_context();
 }
 
-char* svg_generate(const char *script_path, MetricData *data) {
+char* svg_generate(const char *script_path, MetricData *data, int width, int height) {
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
@@ -161,7 +161,15 @@ char* svg_generate(const char *script_path, MetricData *data) {
         duk_put_prop_string(ctx, -2, "transformDivisor");
         duk_push_string(ctx, cfg->value_format);
         duk_put_prop_string(ctx, -2, "valueFormat");
+        duk_push_string(ctx, cfg->panel_type);
+        duk_put_prop_string(ctx, -2, "panelType");
     }
+
+    /* Add width/height options */
+    duk_push_number(ctx, width);
+    duk_put_prop_string(ctx, -2, "width");
+    duk_push_number(ctx, height);
+    duk_put_prop_string(ctx, -2, "height");
 
     /* Call generateSVG */
     if (duk_pcall(ctx, 2) != 0) {
