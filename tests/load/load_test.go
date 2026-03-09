@@ -2,11 +2,13 @@ package benchmarks
 
 import (
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,13 +22,27 @@ import (
 )
 
 const (
-	DefaultRequests    = 10000
+	DefaultRequests    = 1000
 	DefaultConcurrency = 1
 	DefaultDuration    = 60 * time.Second
 	MetricsInterval    = 1 * time.Second
 	WarmupRequests     = 50
 	WarmupDelay        = 5 * time.Second
 )
+
+var repoRoot string
+
+func init() {
+	// Get repository root (3 levels up from this file)
+	// tests/load/load_test.go -> tests/load -> tests -> svgd (repo root)
+	_, filename, _, _ := runtime.Caller(0)
+	repoRoot = filepath.Dir(filepath.Dir(filepath.Dir(filename)))
+}
+
+// binPath returns absolute path to binary
+func binPath(name string) string {
+	return filepath.Join(repoRoot, "bin", name)
+}
 
 type BenchmarkConfig struct {
 	Requests      int
@@ -45,9 +61,13 @@ type BenchmarkConfig struct {
 
 type Config struct {
 	Server struct {
-		TCPPort       int    `json:"tcp_port"`
-		AllowedIps    string `json:"allowed_ips"`
-		RRDCachedAddr string `json:"rrdcached_addr"`
+		TCPPort         int    `json:"tcp_port"`
+		AllowedIps      string `json:"allowed_ips"`
+		RRDCachedAddr    string `json:"rrdcached_addr"`
+		Protocol        string `json:"protocol"`
+		ThreadPoolSize   int    `json:"thread_pool_size"`
+		CacheTTLMetrics int    `json:"cache_ttl_seconds"`
+		Verbose         int    `json:"verbose"`
 	} `json:"server"`
 	RRD struct {
 		BasePath string `json:"base_path"`
@@ -115,25 +135,52 @@ type MetricsSummary struct {
 }
 
 func NewBenchmarkConfig() *BenchmarkConfig {
-	return &BenchmarkConfig{
-		Requests:    DefaultRequests,
+	bc := &BenchmarkConfig{
+		Requests:    1000,  // Reduced for faster testing
 		Concurrency: DefaultConcurrency,
 		Duration:    DefaultDuration,
 		RRDFile:     "/opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd",
-		OutputDir:   "results",
-		LogDir:      "logs",
-		ConfigFile:  "../../config.json",
+		OutputDir:   filepath.Join(repoRoot, "tests", "load", "results"),
+		LogDir:      filepath.Join(repoRoot, "tests", "load", "logs"),
+		ConfigFile:  filepath.Join(repoRoot, "config.json"),
 	}
+	// Load config file to get server port
+	if err := bc.loadConfig(); err != nil {
+		panic(fmt.Sprintf("Failed to load config: %v", err))
+	}
+	return bc
 }
 
-func (bc *BenchmarkConfig) StartDaemon(bin string) (*exec.Cmd, error) {
+func (bc *BenchmarkConfig) loadConfig() error {
+	data, err := os.ReadFile(bc.ConfigFile)
+	if err != nil {
+		return fmt.Errorf("failed to read config file: %w", err)
+	}
+	if err := json.Unmarshal(data, &bc.config); err != nil {
+		return fmt.Errorf("failed to parse config file: %w", err)
+	}
+	return nil
+}
+
+func (bc *BenchmarkConfig) StartDaemon(binaryName string) (*exec.Cmd, error) {
 	logFile := filepath.Join(bc.LogDir, "daemon.log")
 	log, err := os.Create(logFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
-	cmd := exec.Command(bin, bc.ConfigFile)
+	binaryPath := binPath(binaryName)
+
+	var cmd *exec.Cmd
+	if binaryName == "svgd-gate" {
+		// svgd-gate needs: host, backend_port, http_port, static_path
+		staticPath := filepath.Join(repoRoot, "gate", "static")
+		cmd = exec.Command(binaryPath, "127.0.0.1", strconv.Itoa(bc.config.Server.TCPPort), "8080", staticPath)
+	} else {
+		// svgd needs config file
+		cmd = exec.Command(binaryPath, bc.ConfigFile)
+	}
+	cmd.Dir = repoRoot // Set working directory to repo root for relative paths in config
 	cmd.Stdout = log
 	cmd.Stderr = log
 
@@ -169,13 +216,103 @@ func (bc *BenchmarkConfig) StartDaemon(bin string) (*exec.Cmd, error) {
 	return nil, fmt.Errorf("daemon not accepting connections on port %d after %d attempts", bc.config.Server.TCPPort, maxRetries)
 }
 
+// StartDaemonWithConfig starts a daemon with a custom config file
+func (bc *BenchmarkConfig) StartDaemonWithConfig(binaryName, configFile string) (*exec.Cmd, error) {
+	logFile := filepath.Join(bc.LogDir, binaryName+".log")
+	log, err := os.Create(logFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create log file: %w", err)
+	}
+
+	binaryPath := binPath(binaryName)
+	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
+		log.Close()
+		return nil, fmt.Errorf("binary not found: %s", binaryPath)
+	}
+
+	var cmd *exec.Cmd
+	if binaryName == "svgd-gate" {
+		// svgd-gate needs: host, backend_port, http_port, static_path
+		staticPath := filepath.Join(repoRoot, "gate", "static")
+		cmd = exec.Command(binaryPath, "127.0.0.1", strconv.Itoa(bc.config.Server.TCPPort), "8080", staticPath)
+	} else {
+		// svgd needs config file
+		cmd = exec.Command(binaryPath, configFile)
+	}
+	cmd.Dir = repoRoot
+	cmd.Stdout = log
+	cmd.Stderr = log
+
+	if err := cmd.Start(); err != nil {
+		log.Close()
+		return nil, fmt.Errorf("failed to start daemon: %w", err)
+	}
+
+	fmt.Printf("Daemon starting with PID %d...\n", cmd.Process.Pid)
+	time.Sleep(2 * time.Second)
+
+	if _, err := os.Stat(fmt.Sprintf("/proc/%d", cmd.Process.Pid)); os.IsNotExist(err) {
+		return nil, fmt.Errorf("daemon process not found after start")
+	}
+
+	return cmd, nil
+}
+
+// StartHTTPGateway starts the svgd-gate HTTP gateway with specified number of workers
+func (bc *BenchmarkConfig) StartHTTPGateway(workers int) (*exec.Cmd, error) {
+	logFile := filepath.Join(bc.LogDir, "gateway.log")
+	log, err := os.Create(logFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gateway log file: %w", err)
+	}
+
+	gatePath := binPath("svgd-gate")
+	staticPath := filepath.Join(repoRoot, "gate", "static")
+	httpPort := 8080 // Gateway listens on 8080, backend is on config port
+
+	// Command: svgd-gate <host> <backend_port> <http_port> <static_path> [workers]
+	cmd := exec.Command(gatePath, "127.0.0.1", strconv.Itoa(bc.config.Server.TCPPort), strconv.Itoa(httpPort), staticPath, strconv.Itoa(workers))
+	cmd.Dir = repoRoot
+	cmd.Stdout = log
+	cmd.Stderr = log
+
+	if err := cmd.Start(); err != nil {
+		log.Close()
+		return nil, fmt.Errorf("failed to start gateway: %w", err)
+	}
+
+	fmt.Printf("Gateway starting with PID %d on port %d with %d workers...\n", cmd.Process.Pid, httpPort, workers)
+	time.Sleep(2 * time.Second)
+
+	// Check if gateway is responding
+	maxRetries := 10
+	retryDelay := 500 * time.Millisecond
+	for i := 0; i < maxRetries; i++ {
+		testClient, err := http.NewClient("localhost", httpPort)
+		if err == nil {
+			testClient.Close()
+			fmt.Printf("Gateway ready on port %d (attempt %d/%d)\n", httpPort, i+1, maxRetries)
+			return cmd, nil
+		}
+		if i < maxRetries-1 {
+			time.Sleep(retryDelay)
+		}
+	}
+
+	if err := cmd.Process.Kill(); err != nil {
+		fmt.Printf("Warning: failed to kill gateway: %v\n", err)
+	}
+	return nil, fmt.Errorf("gateway not accepting connections on port %d after %d attempts", httpPort, maxRetries)
+}
+
 func (bc *BenchmarkConfig) StartMetricsCollector(daemonPID int) error {
 	bc.collectorStop = make(chan struct{})
 
-	collectorPath := "../bin/metrics_collector"
+	collectorPath := binPath("metrics_collector")
+	collectorSource := filepath.Join(repoRoot, "tests", "metrics_collector.c")
 	if _, err := os.Stat(collectorPath); os.IsNotExist(err) {
 		fmt.Println("Building metrics_collector...")
-		buildCmd := exec.Command("gcc", "-o", collectorPath, "/home/claude/metrics_collector.c", "-pthread")
+		buildCmd := exec.Command("gcc", "-o", collectorPath, collectorSource, "-pthread")
 		if output, err := buildCmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to build metrics_collector: %w\n%s", err, output)
 		}
@@ -557,6 +694,33 @@ type ComparisonRow struct {
 	MemAvgMB   float64
 	IOReadMB   float64
 	IOWriteMB  float64
+
+	// Extended fields from BenchmarkResult
+	TotalRequests int
+	SuccessCount  int
+	FailCount     int
+	SuccessRate   float64
+	MedianLatency time.Duration
+	MinLatency    time.Duration
+	MaxLatency    time.Duration
+	P99Latency    time.Duration
+	TestDuration  time.Duration
+
+	// Extended fields from MetricsSummary
+	CPUMedian              float64
+	CPUMax                 float64
+	MemMedianMB            float64
+	MemMaxMB               float64
+	IOReadOpsPS            float64
+	IOWriteOpsPS           float64
+	ThreadsAvg             float64
+	ThreadsMax             int
+	FDsAvg                 float64
+	FDsMax                 int
+	CtxSwitchVoluntaryPS   float64
+	CtxSwitchInvoluntaryPS float64
+	PageFaultsMinorPS      float64
+	PageFaultsMajorPS      float64
 }
 
 func printBenchmarkComparisonTable(rows []*ComparisonRow) {
@@ -589,54 +753,252 @@ func printBenchmarkComparisonTable(rows []*ComparisonRow) {
 	fmt.Println(strings.Repeat("=", 150))
 }
 
+func writeBenchmarkResultsToCSV(rows []*ComparisonRow, resultsDir string) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	csvPath := filepath.Join(resultsDir, "benchmark_results.csv")
+	file, err := os.Create(csvPath)
+	if err != nil {
+		return fmt.Errorf("failed to create CSV file: %w", err)
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write header
+	header := []string{
+		"TestName", "Protocol", "RRDCached",
+		// Throughput & Requests
+		"ThroughputRPS", "TotalRequests", "SuccessCount", "FailCount", "SuccessRate",
+		// Latency
+		"AvgLatencyMs", "MedianLatencyMs", "MinLatencyMs", "MaxLatencyMs", "P95LatencyMs", "P99LatencyMs",
+		// Test info
+		"TestDurationSec",
+		// CPU
+		"CPUAvgPct", "CPUMedianPct", "CPUMaxPct",
+		// Memory
+		"MemAvgMB", "MemMedianMB", "MemMaxMB",
+		// I/O
+		"IOReadMB", "IOWriteMB", "IOReadOpsPS", "IOWriteOpsPS",
+		// Threads & FDs
+		"ThreadsAvg", "ThreadsMax", "FDsAvg", "FDsMax",
+		// Context switches
+		"CtxSwitchVoluntaryPS", "CtxSwitchInvoluntaryPS",
+		// Page faults
+		"PageFaultsMinorPS", "PageFaultsMajorPS",
+		// Timestamp
+		"Timestamp",
+	}
+	if err := writer.Write(header); err != nil {
+		return fmt.Errorf("failed to write CSV header: %w", err)
+	}
+
+	timestamp := time.Now().Format(time.RFC3339)
+
+	// Write data rows
+	for _, row := range rows {
+		cached := "No"
+		if row.RRDCached {
+			cached = "Yes"
+		}
+
+		record := []string{
+			row.TestName,
+			row.Protocol,
+			cached,
+			// Throughput & Requests
+			fmt.Sprintf("%.2f", row.Throughput),
+			strconv.Itoa(row.TotalRequests),
+			strconv.Itoa(row.SuccessCount),
+			strconv.Itoa(row.FailCount),
+			fmt.Sprintf("%.2f", row.SuccessRate),
+			// Latency (convert to milliseconds)
+			fmt.Sprintf("%.2f", float64(row.AvgLatency.Microseconds())/1000),
+			fmt.Sprintf("%.2f", float64(row.MedianLatency.Microseconds())/1000),
+			fmt.Sprintf("%.2f", float64(row.MinLatency.Microseconds())/1000),
+			fmt.Sprintf("%.2f", float64(row.MaxLatency.Microseconds())/1000),
+			fmt.Sprintf("%.2f", float64(row.P95Latency.Microseconds())/1000),
+			fmt.Sprintf("%.2f", float64(row.P99Latency.Microseconds())/1000),
+			// Test info
+			fmt.Sprintf("%.2f", row.TestDuration.Seconds()),
+			// CPU
+			fmt.Sprintf("%.2f", row.CPUAvg),
+			fmt.Sprintf("%.2f", row.CPUMedian),
+			fmt.Sprintf("%.2f", row.CPUMax),
+			// Memory
+			fmt.Sprintf("%.2f", row.MemAvgMB),
+			fmt.Sprintf("%.2f", row.MemMedianMB),
+			fmt.Sprintf("%.2f", row.MemMaxMB),
+			// I/O
+			fmt.Sprintf("%.2f", row.IOReadMB),
+			fmt.Sprintf("%.2f", row.IOWriteMB),
+			fmt.Sprintf("%.2f", row.IOReadOpsPS),
+			fmt.Sprintf("%.2f", row.IOWriteOpsPS),
+			// Threads & FDs
+			fmt.Sprintf("%.2f", row.ThreadsAvg),
+			strconv.Itoa(row.ThreadsMax),
+			fmt.Sprintf("%.2f", row.FDsAvg),
+			strconv.Itoa(row.FDsMax),
+			// Context switches
+			fmt.Sprintf("%.2f", row.CtxSwitchVoluntaryPS),
+			fmt.Sprintf("%.2f", row.CtxSwitchInvoluntaryPS),
+			// Page faults
+			fmt.Sprintf("%.2f", row.PageFaultsMinorPS),
+			fmt.Sprintf("%.2f", row.PageFaultsMajorPS),
+			// Timestamp
+			timestamp,
+		}
+		if err := writer.Write(record); err != nil {
+			return fmt.Errorf("failed to write CSV row: %w", err)
+		}
+	}
+
+	fmt.Printf("Benchmark results written to %s\n", csvPath)
+	return nil
+}
+
+// createTestConfig creates a temporary config file with specified protocol
+func createTestConfig(baseConfigPath, protocol string, useCache bool, port int) (string, error) {
+	// Read base config
+	data, err := os.ReadFile(baseConfigPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read base config: %w", err)
+	}
+
+	// Parse JSON
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	// Modify server settings
+	if server, ok := config["server"].(map[string]interface{}); ok {
+		server["protocol"] = protocol
+		server["tcp_port"] = port
+		if useCache {
+			server["rrdcached_addr"] = "unix:/var/run/rrdcached.sock"
+		} else {
+			server["rrdcached_addr"] = ""
+		}
+	}
+
+	// Write to temp file
+	tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("svgd-test-%s-%d.json", protocol, port))
+	data, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal config: %w", err)
+	}
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write temp config: %w", err)
+	}
+
+	return tmpFile, nil
+}
+
 func Test_BenchmarkDirectVsCached(t *testing.T) {
-	os.MkdirAll("results", 0755)
-	os.MkdirAll("logs", 0755)
+	os.MkdirAll(filepath.Join(repoRoot, "tests", "load", "results"), 0755)
+	os.MkdirAll(filepath.Join(repoRoot, "tests", "load", "logs"), 0755)
 
 	tests := []struct {
 		name             string
 		usecache         bool
 		metricFilePrefix string
 		p                proto
+		concurrency      int
 	}{
+		// Direct (no rrdcached)
 		{
-			name:             "direct LSRP",
+			name:             "direct LSRP (c=1)",
 			usecache:         false,
 			metricFilePrefix: "direct",
 			p:                protoLSRP,
+			concurrency:      1,
 		},
 		{
-			name:             "rrdcached LSRP",
-			usecache:         true,
-			metricFilePrefix: "cached",
-			p:                protoLSRP,
-		},
-		{
-			name:             "direct HTTP",
+			name:             "direct HTTP (c=1)",
 			usecache:         false,
 			metricFilePrefix: "direct",
 			p:                protoHTTP,
+			concurrency:      1,
 		},
 		{
-			name:             "rrdcached HTTP",
+			name:             "direct LSRP (c=10)",
+			usecache:         false,
+			metricFilePrefix: "direct_c10",
+			p:                protoLSRP,
+			concurrency:      10,
+		},
+		{
+			name:             "direct HTTP (c=10)",
+			usecache:         false,
+			metricFilePrefix: "direct_c10",
+			p:                protoHTTP,
+			concurrency:      10,
+		},
+		// With rrdcached
+		{
+			name:             "cached LSRP (c=1)",
+			usecache:         true,
+			metricFilePrefix: "cached",
+			p:                protoLSRP,
+			concurrency:      1,
+		},
+		{
+			name:             "cached HTTP (c=1)",
 			usecache:         true,
 			metricFilePrefix: "cached",
 			p:                protoHTTP,
+			concurrency:      1,
+		},
+		{
+			name:             "cached LSRP (c=10)",
+			usecache:         true,
+			metricFilePrefix: "cached_c10",
+			p:                protoLSRP,
+			concurrency:      10,
+		},
+		{
+			name:             "cached HTTP (c=10)",
+			usecache:         true,
+			metricFilePrefix: "cached_c10",
+			p:                protoHTTP,
+			concurrency:      10,
 		},
 	}
 
 	var comparisonRows []*ComparisonRow
+	basePort := 8090 // Use different ports for each test to avoid conflicts
 
-	for _, tt := range tests {
+	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			bc := NewBenchmarkConfig()
 			bc.UseRRDCached = tt.usecache
-			bc.MetricsFile = filepath.Join(bc.OutputDir, fmt.Sprintf("%s_%s_metrics.csv", tt.metricFilePrefix, tt.p))
+			bc.Concurrency = tt.concurrency
+			// Reduce requests for higher concurrency tests
+			if tt.concurrency > 1 {
+				bc.Requests = 1000
+			}
+			testPort := basePort + i
+			bc.MetricsFile = filepath.Join(bc.OutputDir, fmt.Sprintf("%s_%s_c%d_metrics.csv", tt.metricFilePrefix, tt.p, tt.concurrency))
 
-			daemonCmd, err := bc.StartDaemon(fmt.Sprintf("../bin/%s", tt.p))
+			// Create test config with appropriate protocol
+			protocol := string(tt.p)
+			testConfig, err := createTestConfig(bc.ConfigFile, protocol, tt.usecache, testPort)
+			if err != nil {
+				t.Fatalf("Failed to create test config: %v", err)
+			}
+			defer os.Remove(testConfig)
+
+			// Start backend with test config
+			daemonCmd, err := bc.StartDaemonWithConfig("svgd", testConfig)
 			if err != nil {
 				t.Fatalf("Failed to start daemon: %v", err)
 			}
+			metricsPID := daemonCmd.Process.Pid
+
 			defer func() {
 				if daemonCmd != nil && daemonCmd.Process != nil {
 					if err := daemonCmd.Process.Kill(); err != nil {
@@ -645,21 +1007,22 @@ func Test_BenchmarkDirectVsCached(t *testing.T) {
 				}
 			}()
 
-			if err := bc.StartMetricsCollector(daemonCmd.Process.Pid); err != nil {
+			if err := bc.StartMetricsCollector(metricsPID); err != nil {
 				t.Fatalf("Failed to start metrics collector: %v", err)
 			}
 			defer bc.StopMetricsCollector()
 
 			var client any
 			if tt.p == protoLSRP {
-				c, err := lsrp.NewClient("localhost", bc.config.Server.TCPPort)
+				c, err := lsrp.NewClient("localhost", testPort)
 				if err != nil {
 					t.Fatalf("Failed to create lsrp client: %v", err)
 				}
 				defer c.Close()
 				client = c
 			} else {
-				c, err := http.NewClient("localhost", bc.config.Server.TCPPort)
+				// HTTP client connects directly to backend (native HTTP mode)
+				c, err := http.NewClient("localhost", testPort)
 				if err != nil {
 					t.Fatalf("Failed to create http client: %v", err)
 				}
@@ -707,24 +1070,52 @@ func Test_BenchmarkDirectVsCached(t *testing.T) {
 			printResults(result.TestName, result, metrics)
 
 			row := &ComparisonRow{
-				TestName:   tt.name,
-				Protocol:   string(tt.p),
-				RRDCached:  tt.usecache,
-				Throughput: result.ThroughputRPS,
-				AvgLatency: result.AvgLatency,
-				P95Latency: result.P95Latency,
+				TestName:      tt.name,
+				Protocol:      string(tt.p),
+				RRDCached:     tt.usecache,
+				Throughput:    result.ThroughputRPS,
+				AvgLatency:    result.AvgLatency,
+				P95Latency:    result.P95Latency,
+				TotalRequests: result.TotalRequests,
+				SuccessCount:  result.SuccessCount,
+				FailCount:     result.FailCount,
+				SuccessRate:   result.SuccessRate,
+				MedianLatency: result.MedianLatency,
+				MinLatency:    result.MinLatency,
+				MaxLatency:    result.MaxLatency,
+				P99Latency:    result.P99Latency,
+				TestDuration:  result.Duration,
 			}
 			if metrics != nil {
 				row.CPUAvg = metrics.CPUAvg
 				row.MemAvgMB = metrics.MemAvgMB
 				row.IOReadMB = metrics.IOReadMB
 				row.IOWriteMB = metrics.IOWriteMB
+				row.CPUMedian = metrics.CPUMedian
+				row.CPUMax = metrics.CPUMax
+				row.MemMedianMB = metrics.MemMedianMB
+				row.MemMaxMB = metrics.MemMaxMB
+				row.IOReadOpsPS = metrics.IOReadOpsPS
+				row.IOWriteOpsPS = metrics.IOWriteOpsPS
+				row.ThreadsAvg = metrics.ThreadsAvg
+				row.ThreadsMax = metrics.ThreadsMax
+				row.FDsAvg = metrics.FDsAvg
+				row.FDsMax = metrics.FDsMax
+				row.CtxSwitchVoluntaryPS = metrics.CtxSwitchVoluntaryPS
+				row.CtxSwitchInvoluntaryPS = metrics.CtxSwitchInvoluntaryPS
+				row.PageFaultsMinorPS = metrics.PageFaultsMinorPS
+				row.PageFaultsMajorPS = metrics.PageFaultsMajorPS
 			}
 			comparisonRows = append(comparisonRows, row)
 		})
 	}
 
 	printBenchmarkComparisonTable(comparisonRows)
+
+	// Write results to CSV
+	if err := writeBenchmarkResultsToCSV(comparisonRows, filepath.Join(repoRoot, "tests", "load", "results")); err != nil {
+		fmt.Printf("Warning: failed to write results to CSV: %v\n", err)
+	}
 }
 
 type SavedResults struct {

@@ -1,11 +1,13 @@
 package base
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +21,19 @@ import (
 )
 
 var tc testCase
+var repoRoot string
+
+func init() {
+	// Get repository root (3 levels up from this file)
+	// tests/e2e/response_time_test.go -> tests/e2e -> tests -> svgd (repo root)
+	_, filename, _, _ := runtime.Caller(0)
+	repoRoot = filepath.Dir(filepath.Dir(filepath.Dir(filename)))
+}
+
+// binPath returns absolute path to binary
+func binPath(name string) string {
+	return filepath.Join(repoRoot, "bin", name)
+}
 
 func TestMain(m *testing.M) {
 	// Initialize test configuration
@@ -27,9 +42,10 @@ func TestMain(m *testing.M) {
 	tc.endpoint = "endpoint=cpu&period=3600" // LSRP format
 	tc.httpEndpoint = "cpu"                  // HTTP format
 	tc.rrdFile = "/opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd"
-	tc.outputDir = "temp_svgs"
-	tc.logDir = "logs"
-	tc.configFile = "../../config.json"
+	tc.outputDir = filepath.Join(repoRoot, "tests", "e2e", "temp_svgs")
+	tc.logDir = filepath.Join(repoRoot, "tests", "e2e", "logs")
+	tc.resultsDir = filepath.Join(repoRoot, "tests", "e2e", "results")
+	tc.configFile = filepath.Join(repoRoot, "config.json")
 
 	// Create directories
 	if err := os.MkdirAll(tc.outputDir, 0755); err != nil {
@@ -38,6 +54,10 @@ func TestMain(m *testing.M) {
 	}
 	if err := os.MkdirAll(tc.logDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create directory %s: %v\n", tc.logDir, err)
+		os.Exit(1)
+	}
+	if err := os.MkdirAll(tc.resultsDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create directory %s: %v\n", tc.resultsDir, err)
 		os.Exit(1)
 	}
 
@@ -119,6 +139,11 @@ func Test_HTTPVsLSRP(t *testing.T) {
 	}
 
 	printComparisonTable(allResults)
+
+	// Write results to CSV
+	if err := writeResultsToCSV(allResults, tc.resultsDir); err != nil {
+		t.Logf("Warning: failed to write results to CSV: %v", err)
+	}
 }
 
 type testCase struct {
@@ -129,6 +154,7 @@ type testCase struct {
 	rrdFile      string
 	outputDir    string
 	logDir       string
+	resultsDir   string
 	configFile   string
 	config       config
 }
@@ -162,9 +188,13 @@ func checkFile(path string, executable bool) error {
 
 type config struct {
 	Server struct {
-		TCPPort       int    `json:"tcp_port"`
-		AllowedIps    string `json:"allowed_ips"`
-		RRDCachedAddr string `json:"rrdcached_addr"`
+		TCPPort         int    `json:"tcp_port"`
+		Protocol        string `json:"protocol"`
+		AllowedIps      string `json:"allowed_ips"`
+		RRDCachedAddr   string `json:"rrdcached_addr"`
+		ThreadPoolSize  int    `json:"thread_pool_size"`
+		CacheTTLMetrics int    `json:"cache_ttl_seconds"`
+		Verbose         int    `json:"verbose"`
 	} `json:"server"`
 	RRD struct {
 		BasePath string `json:"base_path"`
@@ -429,66 +459,140 @@ func printComparisonTable(results []*TestResult) {
 	fmt.Println(strings.Repeat("=", 140))
 }
 
+func writeResultsToCSV(results []*TestResult, resultsDir string) error {
+	if len(results) == 0 {
+		return nil
+	}
+
+	csvPath := filepath.Join(resultsDir, "e2e_results.csv")
+	file, err := os.Create(csvPath)
+	if err != nil {
+		return fmt.Errorf("failed to create CSV file: %w", err)
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	defer writer.Flush()
+
+	// Write header
+	header := []string{"Protocol", "Mode", "RRDCached", "Total", "Success", "Rate", "AvgMs", "MedianMs", "MinMs", "MaxMs", "Timestamp"}
+	if err := writer.Write(header); err != nil {
+		return fmt.Errorf("failed to write CSV header: %w", err)
+	}
+
+	timestamp := time.Now().Format(time.RFC3339)
+
+	// Write data rows
+	for _, r := range results {
+		if r.TotalRequests == 0 {
+			continue
+		}
+		cached := "No"
+		if r.RRDCached {
+			cached = "Yes"
+		}
+		row := []string{
+			r.Protocol,
+			r.Mode,
+			cached,
+			strconv.Itoa(r.TotalRequests),
+			strconv.Itoa(r.SuccessCount),
+			fmt.Sprintf("%.1f", r.SuccessRate),
+			strconv.FormatInt(r.AvgTimeMs, 10),
+			strconv.FormatInt(r.MedianTimeMs, 10),
+			strconv.FormatInt(r.MinTimeMs, 10),
+			strconv.FormatInt(r.MaxTimeMs, 10),
+			timestamp,
+		}
+		if err := writer.Write(row); err != nil {
+			return fmt.Errorf("failed to write CSV row: %w", err)
+		}
+	}
+
+	fmt.Printf("Results written to %s\n", csvPath)
+	return nil
+}
+
 func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) (*TestResult, error) {
 	logFile := filepath.Join(tc.logDir, fmt.Sprintf("%s_%s.log", logPrefix, mode))
 	results := make([]result, 0, tc.requests)
 
-	// Check binary
-	if err := checkFile("../bin/"+binary, true); err != nil {
+	var backendCmd *exec.Cmd
+	var backendPID int
+	var testConfigFile string
+
+	// Create temp config with appropriate protocol
+	testConfig := tc.config
+	testConfig.Server.Protocol = protocol
+	testConfigData, err := json.MarshalIndent(testConfig, "", "\t")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal test config: %v", err)
+	}
+	testConfigFile = filepath.Join(os.TempDir(), fmt.Sprintf("svgd-e2e-%s-%d.json", protocol, time.Now().UnixNano()))
+	if err := os.WriteFile(testConfigFile, testConfigData, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write test config: %v", err)
+	}
+	defer os.Remove(testConfigFile)
+
+	// Start backend with test config
+	backendPath := binPath("svgd")
+	if err := checkFile(backendPath, true); err != nil {
 		return nil, err
 	}
-
-	// Check dependencies
-	cmd := exec.Command("ldd", "../bin/"+binary)
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("dependency check failed for ../bin/%s: %v", binary, err)
-	}
-
-	// Start server
-	t.Logf("Starting %s server on port %d with binary ../bin/%s and config %s\n", logPrefix, tc.config.Server.TCPPort, binary, tc.configFile)
-	serverCmd := exec.Command("../bin/"+binary, tc.configFile)
+	t.Logf("Starting %s server on port %d with binary %s and config %s\n", protocol, tc.config.Server.TCPPort, backendPath, testConfigFile)
+	backendCmd = exec.Command(backendPath, testConfigFile)
+	backendCmd.Dir = repoRoot // Set working directory to repo root for relative paths in config
 	serverLog, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open log file %s: %v", logFile, err)
 	}
-	defer serverLog.Close()
-	serverCmd.Stdout = serverLog
-	serverCmd.Stderr = serverLog
-	if err := serverCmd.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start %s server: %v", logPrefix, err)
+	backendCmd.Stdout = serverLog
+	backendCmd.Stderr = serverLog
+	if err := backendCmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start %s server: %v", protocol, err)
 	}
-	t.Logf("Server started with PID %d\n", serverCmd.Process.Pid)
+	backendPID = backendCmd.Process.Pid
+	t.Logf("%s server started with PID %d\n", protocol, backendPID)
+
 	defer func() {
-		t.Logf("Shutting down server on port %d\n", tc.config.Server.TCPPort)
-		serverCmd.Process.Signal(os.Interrupt)
-		serverCmd.Wait()
+		t.Logf("Shutting down %s server (PID %d)\n", protocol, backendPID)
+		if backendCmd != nil && backendCmd.Process != nil {
+			backendCmd.Process.Signal(os.Interrupt)
+			backendCmd.Wait()
+		}
 	}()
-	time.Sleep(5 * time.Second) // Increased delay
+
+	time.Sleep(5 * time.Second)
 
 	// Verify server is running
-	if _, err := os.FindProcess(serverCmd.Process.Pid); err != nil {
-		return nil, fmt.Errorf("server %s failed to start, check %s", logPrefix, logFile)
+	if _, err := os.FindProcess(backendPID); err != nil {
+		return nil, fmt.Errorf("backend failed to start, check %s", logFile)
 	}
 
 	// Verify server is listening
-	cmd = exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TCPPort))
+	cmd := exec.Command("lsof", "-i", fmt.Sprintf(":%d", tc.config.Server.TCPPort))
 	if err := cmd.Run(); err != nil {
-		t.Logf("Warning: %s server not listening on port %d, check %s\n", logPrefix, tc.config.Server.TCPPort, logFile)
+		t.Logf("Warning: backend not listening on port %d, check %s\n", tc.config.Server.TCPPort, logFile)
 	}
 
 	// Create client
-	var client interface{}
+	var (
+		client   interface{}
+		clientPort int
+	)
 	endpoint := tc.endpoint
 	if protocol == "http" {
-		client, err = http.NewClient("localhost", tc.config.Server.TCPPort)
+		clientPort = tc.config.Server.TCPPort // Direct to backend (native HTTP mode)
+		client, err = http.NewClient("localhost", clientPort)
 		if err != nil {
 			return nil, fmt.Errorf("http.NewClient: %w", err)
 		}
 		endpoint = tc.httpEndpoint
 	} else {
-		lsrpClient, err := lsrp.NewClient("localhost", tc.config.Server.TCPPort)
+		clientPort = tc.config.Server.TCPPort // Backend port for LSRP
+		lsrpClient, err := lsrp.NewClient("localhost", clientPort)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create LSRP client for %s:%d: %v", "localhost", tc.config.Server.TCPPort, err)
+			return nil, fmt.Errorf("failed to create LSRP client for %s:%d: %v", "localhost", clientPort, err)
 		}
 		client = lsrpClient
 		defer lsrpClient.Close() // Close only in parallel mode
@@ -501,7 +605,7 @@ func (tc *testCase) run(t *testing.T, binary, logPrefix, mode, protocol string) 
 	}
 	defer errorLog.Close()
 
-	t.Logf("Running %d requests in %s mode for %s on port %d using %s protocol...\n", tc.requests, mode, logPrefix, tc.config.Server.TCPPort, protocol)
+	t.Logf("Running %d requests in %s mode for %s on port %d using %s protocol...\n", tc.requests, mode, logPrefix, clientPort, protocol)
 
 	if mode == "sync" {
 		resultChan := make(chan result, tc.requests)

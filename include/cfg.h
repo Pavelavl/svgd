@@ -28,11 +28,15 @@ typedef struct {
 
 typedef struct {
     int tcp_port;
+    char protocol[8];           // "lsrp" (default) or "http"
     char allowed_ips[1024];
     char rrd_base_path[256];
     char rrdcached_addr[256];
     char js_script_path[256];
-    
+    int thread_pool_size;       // LSRP worker threads (default: 4)
+    int cache_ttl_seconds;      // RRD data cache TTL (default: 5)
+    int verbose;                // Verbose logging (default: 0)
+
     MetricConfig *metrics;
     int metrics_count;
 } Config;

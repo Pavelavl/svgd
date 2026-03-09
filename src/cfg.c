@@ -113,10 +113,14 @@ static MetricConfig parse_metric_config(duk_context *ctx) {
 Config load_config(duk_context *ctx, const char *filename) {
     Config config = {
         .tcp_port = 8080,
+        .protocol = "lsrp",
         .allowed_ips = "127.0.0.1",
         .rrdcached_addr = "unix:/var/run/rrdcached.sock",
         .rrd_base_path = "/opt/collectd/var/lib/collectd/rrd/localhost",
         .js_script_path = "/home/workerpool/svgd/scripts/generate_cpu_svg.js",
+        .thread_pool_size = 4,       // Default: 4 workers (optimal for CPU-bound JS)
+        .cache_ttl_seconds = 5,      // Default: 5 second RRD cache
+        .verbose = 0,                // Default: quiet mode
         .metrics = NULL,
         .metrics_count = 0
     };
@@ -163,8 +167,12 @@ Config load_config(duk_context *ctx, const char *filename) {
     if (duk_get_prop_string(ctx, -1, "server")) {
         if (duk_is_object(ctx, -1)) {
             config.tcp_port = get_int_field(ctx, "tcp_port", 8080);
+            set_string_field(ctx, "protocol", config.protocol, sizeof(config.protocol), "lsrp");
             set_string_field(ctx, "allowed_ips", config.allowed_ips, sizeof(config.allowed_ips), "127.0.0.1");
             set_string_field(ctx, "rrdcached_addr", config.rrdcached_addr, sizeof(config.rrdcached_addr), "");
+            config.thread_pool_size = get_int_field(ctx, "thread_pool_size", 4);
+            config.cache_ttl_seconds = get_int_field(ctx, "cache_ttl_seconds", 5);
+            config.verbose = get_int_field(ctx, "verbose", 0);
         }
         duk_pop(ctx);
     }

@@ -1,36 +1,22 @@
+/**
+ * @file rrd_r.h
+ * @brief RRD reading and SVG generation umbrella header
+ *
+ * This header includes all RRD-related submodules:
+ * - reader.h: RRD file reading
+ * - cache.h: Data caching
+ * - svg.h: SVG generation
+ */
+
 #ifndef RRD_READER_H
 #define RRD_READER_H
 
-#include <rrd.h>
-#include <duktape.h>
-#include <errno.h>
-#include <pthread.h>
-#include <rrd_client.h>
-#include "cfg.h"
+/* Include all submodules */
+#include "rrd/reader.h"
+#include "rrd/cache.h"
+#include "rrd/svg.h"
 
+/* Legacy definitions for backward compatibility */
 #define MAX_POINTS 1000
 
-typedef struct {
-    time_t timestamp;
-    double value;
-} DataPoint;
-
-typedef struct {
-    int series_count;
-    char **series_names;
-    DataPoint **series_data;
-    int *series_counts;
-    char *metric_type;
-    char *param1;
-    
-    // Pointer to metric configuration (for JS generation)
-    MetricConfig *metric_config;
-} MetricData;
-
-MetricData *fetch_metric_data(const char *rrdcached_addr, const char *filename, time_t start, char *param1, MetricConfig *metric_config);
-char* generate_svg(duk_context *ctx, const char *script_path, MetricData *data);
-void free_metric_data(MetricData *data);
-int load_js_file(duk_context *ctx, const char *filename);
-void free_js_cache(void);
-
-#endif
+#endif /* RRD_READER_H */

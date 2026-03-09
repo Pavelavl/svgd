@@ -6,8 +6,9 @@ LSRP_DIR = lsrp
 BIN_DIR = bin
 EXAMPLES_DIR = examples
 
-SERVER_SRC = src/*.c $(LSRP_DIR)/lsrp_server.c
+SERVER_SRC = src/main.c src/cfg.c src/http.c src/handler.c src/rrd/reader.c src/rrd/cache.c src/rrd/svg.c $(LSRP_DIR)/lsrp_server.c
 SERVER_BIN = svgd
+HTTP_SRC = src/http.c
 GATE_SRC = gate/*.c $(LSRP_DIR)/lsrp_client.c
 GATE_BIN = svgd-gate
 

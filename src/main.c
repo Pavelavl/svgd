@@ -1,68 +1,159 @@
+/**
+ * @file main.c
+ * @brief SVGD server entry point
+ *
+ * Supports two modes:
+ * - HTTP: Native HTTP server (single-threaded)
+ * - LSRP: Custom binary protocol with thread pool
+ */
+
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <unistd.h>
+#include <signal.h>
+#include <errno.h>
 #include <duktape.h>
+
 #include "../include/cfg.h"
 #include "../include/rrd_r.h"
 #include "../lsrp/lsrp.h"
 #include "../lsrp/lsrp_server.h"
+#include "../include/http.h"
+#include "../include/handler.h"
 
+/* ============================================================================
+ * Global State
+ * ============================================================================ */
+
+duk_context *global_ctx = NULL;  /* Used by handler.c */
 static Config global_config;
-static duk_context *global_ctx;
+static volatile sig_atomic_t running = 1;
+static int server_sock = -1;
+static int verbose_logging = 0;
 
-static char* get_param_value(const char* params, const char* key) {
-    char search_key[256];
-    snprintf(search_key, sizeof(search_key), "%s=", key);
-    const char* key_pos = strstr(params, search_key);
-    if (!key_pos) return NULL;
-    key_pos += strlen(search_key);
-    const char* end = strchr(key_pos, '&');
-    size_t len = end ? (end - key_pos) : strlen(key_pos);
-    char* value = malloc(len + 1);
-    if (!value) return NULL;
-    strncpy(value, key_pos, len);
-    value[len] = '\0';
-    return value;
-}
+/* Verbose logging accessor for other modules */
+int (*is_verbose_logging_ptr)(void) = NULL;
+static int verbose_accessor(void) { return verbose_logging; }
 
-// Extract parameter from endpoint path
-// e.g., "cpu/process/nginx" with endpoint "cpu/process" -> "nginx"
-static char* extract_param_from_path(const char *path, const char *endpoint) {
-    size_t endpoint_len = strlen(endpoint);
-    
-    if (strncmp(path, endpoint, endpoint_len) != 0) {
-        return NULL;
-    }
-    
-    // Skip the endpoint part
-    const char *param_start = path + endpoint_len;
-    
-    // Skip leading slash if present
-    if (*param_start == '/') {
-        param_start++;
-    }
-    
-    // If there's nothing after the endpoint, no parameter
-    if (*param_start == '\0') {
-        return NULL;
-    }
-    
-    return strdup(param_start);
-}
+/* ============================================================================
+ * HTTP Server
+ * ============================================================================ */
 
-// Build RRD file path from template
-static void build_rrd_path(char *dest, size_t dest_size, const char *base_path, 
-                          const char *path_template, const char *param) {
-    if (strchr(path_template, '%') && param) {
-        // Template contains %s placeholder
-        snprintf(dest, dest_size, "%s/", base_path);
-        snprintf(dest + strlen(dest), dest_size - strlen(dest), path_template, param);
-    } else {
-        // Simple path without parameters
-        snprintf(dest, dest_size, "%s/%s", base_path, path_template);
+static void http_signal_handler(int sig) {
+    (void)sig;
+    running = 0;
+    if (server_sock >= 0) {
+        shutdown(server_sock, SHUT_RDWR);
+        close(server_sock);
     }
 }
 
-static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
+static void run_http_server(int port) {
+    struct sigaction sa = { .sa_handler = http_signal_handler };
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGINT, &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGPIPE, &sa, NULL);
+
+    server_sock = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_sock < 0) {
+        fprintf(stderr, "Failed to create socket: %s\n", strerror(errno));
+        return;
+    }
+
+    int opt = 1;
+    setsockopt(server_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_addr.s_addr = INADDR_ANY,
+        .sin_port = htons(port)
+    };
+
+    if (bind(server_sock, (struct sockaddr*)&addr, sizeof(addr)) < 0 ||
+        listen(server_sock, SOMAXCONN) < 0) {
+        fprintf(stderr, "Failed to bind/listen: %s\n", strerror(errno));
+        close(server_sock);
+        return;
+    }
+
+    fprintf(stderr, "HTTP server listening on port %d\n", port);
+
+    char buffer[8192];
+    while (running) {
+        struct sockaddr_in client_addr;
+        socklen_t client_len = sizeof(client_addr);
+        int client_sock = accept(server_sock, (struct sockaddr*)&client_addr, &client_len);
+
+        if (client_sock < 0) {
+            if (running) fprintf(stderr, "Accept failed: %s\n", strerror(errno));
+            continue;
+        }
+
+        ssize_t n = recv(client_sock, buffer, sizeof(buffer) - 1, 0);
+        if (n <= 0) {
+            close(client_sock);
+            continue;
+        }
+        buffer[n] = '\0';
+
+        /* Handle CORS preflight */
+        if (strncmp(buffer, "OPTIONS", 7) == 0) {
+            http_send_options(client_sock);
+            close(client_sock);
+            continue;
+        }
+
+        /* Parse HTTP request */
+        http_request_t req;
+        if (http_parse_request(buffer, n, &req) != 0) {
+            http_send_error(client_sock, 400, "Bad Request");
+            close(client_sock);
+            continue;
+        }
+
+        /* Extract endpoint and period */
+        const char *endpoint = req.path;
+        if (*endpoint == '/') endpoint++;
+
+        int period = 3600;
+        if (req.query[0]) {
+            char *p = strstr(req.query, "period=");
+            if (p) {
+                period = atoi(p + 7);
+                if (period <= 0) period = 3600;
+            }
+        }
+
+        if (verbose_logging) {
+            fprintf(stderr, "HTTP: %s %s (period=%d)\n", req.method, req.path, period);
+        }
+
+        /* Process request */
+        handler_result_t *result = handler_process(&global_config, endpoint, req.query, period, 0);
+
+        if (result && result->status == 0) {
+            http_send_response(client_sock,
+                result->is_json ? "application/json" : "image/svg+xml",
+                result->data, result->data_len);
+        } else {
+            http_send_error(client_sock, 400,
+                result && result->data ? result->data : "Unknown error");
+        }
+
+        handler_result_free(result);
+        close(client_sock);
+    }
+
+    fprintf(stderr, "\nShutting down HTTP server...\n");
+    close(server_sock);
+}
+
+/* ============================================================================
+ * LSRP Handler
+ * ============================================================================ */
+
+static int lsrp_handler(lsrp_request_t *req, lsrp_response_t *resp) {
     if (!req->params || req->params_len == 0) {
         resp->status = 1;
         resp->data = strdup("No parameters provided");
@@ -70,140 +161,94 @@ static int handler(lsrp_request_t *req, lsrp_response_t *resp) {
         return -1;
     }
 
-    char* endpoint_str = get_param_value(req->params, "endpoint");
-    if (!endpoint_str) {
+    char *endpoint = handler_get_param(req->params, "endpoint");
+    if (!endpoint) {
         resp->status = 1;
         resp->data = strdup("Missing endpoint parameter");
         resp->data_len = strlen(resp->data);
         return -1;
     }
 
-    // Special endpoint for getting metrics configuration
-    if (strcmp(endpoint_str, "_config/metrics") == 0) {
-        char *json = generate_metrics_json(&global_config);
-        if (!json) {
-            resp->status = 1;
-            resp->data = strdup("Failed to generate metrics config");
-            resp->data_len = strlen(resp->data);
-            free(endpoint_str);
-            return -1;
-        }
-       
-        resp->status = 0;
-        resp->data = json;
-        resp->data_len = strlen(json);
-        free(endpoint_str);
-        return 0;
-    }
-
-    char* period_str = get_param_value(req->params, "period");
+    char *period_str = handler_get_param(req->params, "period");
     int period = period_str ? atoi(period_str) : 3600;
+    if (period <= 0) period = 3600;
     free(period_str);
 
-    // Find matching metric configuration
-    MetricConfig *metric = find_metric_config(&global_config, endpoint_str);
-    if (!metric) {
-        char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "Unknown endpoint: %s", endpoint_str);
-        resp->status = 1;
-        resp->data = strdup(error_msg);
-        resp->data_len = strlen(resp->data);
-        free(endpoint_str);
-        return -1;
-    }
+    /* Process request with caching enabled */
+    handler_result_t *result = handler_process(&global_config, endpoint, NULL, period, 1);
+    free(endpoint);
 
-    // Extract parameter if required
-    char *param = NULL;
-    if (metric->requires_param) {
-        param = extract_param_from_path(endpoint_str, metric->endpoint);
-        if (!param || strlen(param) == 0) {
-            char error_msg[256];
-            snprintf(error_msg, sizeof(error_msg), "Endpoint '%s' requires parameter '%s'",
-                    metric->endpoint, metric->param_name);
-            resp->status = 1;
-            resp->data = strdup(error_msg);
-            resp->data_len = strlen(resp->data);
-            free(endpoint_str);
-            if (param) free(param);
-            return -1;
-        }
-    }
-
-    // Build RRD file path
-    char rrd_path[512] = {0};
-    build_rrd_path(rrd_path, sizeof(rrd_path), global_config.rrd_base_path,
-                   metric->rrd_path, param);
-
-    fprintf(stderr, "Fetching data for endpoint=%s, RRD=%s\n",
-            endpoint_str, rrd_path);
-
-    time_t now = time(NULL);
-    MetricData *data = fetch_metric_data(global_config.rrdcached_addr, rrd_path,
-                                        now - period, param, metric);
-   
-    free(endpoint_str);
-
-    if (!data) {
-        resp->status = 1;
-        resp->data = strdup("Failed to fetch metric data");
-        resp->data_len = strlen(resp->data);
-        if (param) free(param);
-        return -1;
-    }
-
-    fprintf(stderr, "Data fetched: %d series\n", data->series_count);
-
-    // Pass metric configuration to SVG generator
-    data->metric_config = metric;
-
-    char *svg = generate_svg(global_ctx, global_config.js_script_path, data);
-
-    if (param) free(param);
-
-    if (svg) {
+    if (result && result->status == 0) {
         resp->status = 0;
-        resp->data = svg;
-        resp->data_len = strlen(svg);
-        free_metric_data(data);
-        return 0;
+        resp->data = result->data;
+        resp->data_len = result->data_len;
+        result->data = NULL;  /* Transfer ownership */
     } else {
         resp->status = 1;
-        resp->data = strdup("Failed to generate SVG");
+        resp->data = strdup(result && result->data ? result->data : "Unknown error");
         resp->data_len = strlen(resp->data);
-        free_metric_data(data);
-        return -1;
     }
+
+    handler_result_free(result);
+    return resp->status == 0 ? 0 : -1;
 }
 
+/* ============================================================================
+ * Main Entry Point
+ * ============================================================================ */
+
 int main(int argc, char *argv[]) {
+    /* Initialize Duktape context */
     global_ctx = duk_create_heap_default();
     if (!global_ctx) {
         fprintf(stderr, "Failed to create Duktape context\n");
         return 1;
     }
 
+    /* Load configuration */
     const char *config_file = (argc > 1) ? argv[1] : "config.json";
     global_config = load_config(global_ctx, config_file);
 
+    /* Set up verbose logging */
+    verbose_logging = global_config.verbose;
+    is_verbose_logging_ptr = verbose_accessor;
+
+    /* Initialize RRD cache for LSRP mode */
+    if (strcmp(global_config.protocol, "http") != 0) {
+        init_rrd_cache(global_config.cache_ttl_seconds);
+        init_js_cache(global_config.js_script_path);
+        fprintf(stderr, "JS cache pre-warmed for LSRP workers\n");
+    }
+
     if (global_config.metrics_count == 0) {
-        fprintf(stderr, "Error: No metrics configured. Please check your config file.\n");
+        fprintf(stderr, "Error: No metrics configured\n");
         duk_destroy_heap(global_ctx);
         return 1;
     }
 
-    fprintf(stderr, "Starting LSRP server on port %d with %d metrics\n", 
-            global_config.tcp_port, global_config.metrics_count);
-    fprintf(stderr, "Special endpoints:\n");
-    fprintf(stderr, "  - _config/metrics: Get list of available metrics\n");
+    /* Determine protocol */
+    const char *protocol = global_config.protocol;
+    if (strlen(protocol) == 0) protocol = "lsrp";
 
-    int ret = lsrp_server_start(global_config.tcp_port, handler);
-    if (ret < 0) {
-        fprintf(stderr, "Failed to start LSRP server: %d\n", ret);
+    fprintf(stderr, "Starting %s server on port %d (%d metrics)\n",
+            protocol, global_config.tcp_port, global_config.metrics_count);
+
+    /* Start appropriate server */
+    if (strcmp(protocol, "http") == 0) {
+        run_http_server(global_config.tcp_port);
+    } else {
+        int ret = lsrp_server_start(global_config.tcp_port, lsrp_handler,
+                                    global_config.thread_pool_size);
+        if (ret < 0) {
+            fprintf(stderr, "Failed to start LSRP server: %d\n", ret);
+        }
     }
 
+    /* Cleanup */
     free_config(&global_config);
     duk_destroy_heap(global_ctx);
     free_js_cache();
+    free_rrd_cache();
 
     return 0;
 }
