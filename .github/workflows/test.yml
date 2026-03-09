@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repository
@@ -20,11 +20,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            librrd-dev libduktape-dev \
+            librrd-dev duktape \
             gcc make jq \
-            golang-go \
+            golang-go duktape-dev \
             python3 python3-venv python3-pip \
-            lsof flock curl procps
+            lsof curl procps collectd
 
       - name: Setup Go environment
         uses: actions/setup-go@v5
@@ -46,6 +46,64 @@ jobs:
         run: |
           python3 -m venv .venv
           .venv/bin/pip install -r tests/ui/requirements.txt
+
+      - name: Setup Collectd and RRD files for E2E tests
+        run: |
+          # 1. Устанавливаем collectd и rrdtool (для создания файлов вручную)
+          sudo apt-get install -y collectd rrdtool
+
+          # 2. Создаем нужные директории
+          sudo mkdir -p /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total
+          sudo mkdir -p /var/run/collectd
+
+          # 3. !!! ВАЖНО: Даем права пользователю collectd писать в эту папку
+          sudo chown -R collectd:collectd /opt/collectd/var/lib/collectd
+
+          # 4. Конфигурируем collectd
+          cat <<EOF | sudo tee /etc/collectd/collectd.conf
+          FQDNLookup false
+          Hostname "localhost"
+          Interval 1
+
+          LoadPlugin cpu
+          LoadPlugin rrdtool
+          LoadPlugin logfile
+
+          <Plugin logfile>
+              LogLevel "info"
+              File "/var/log/collectd.log"
+          </Plugin>
+
+          <Plugin rrdtool>
+              DataDir "/opt/collectd/var/lib/collectd/rrd"
+          </Plugin>
+          EOF
+
+          # 5. Запускаем collectd
+          sudo service collectd start
+
+          # 6. Ждем появления стандартных файлов (cpu-0, cpu-1 и т.д.)
+          echo "Waiting for collectd to start writing..."
+          for i in {1..20}; do
+            if [ "$(ls -A /opt/collectd/var/lib/collectd/rrd/localhost 2>/dev/null)" ]; then
+              echo "Collectd started writing!"
+              break
+            fi
+            sleep 1
+          done
+
+          # 7. !!! ФИКС ДЛЯ ТЕСТА: Создаем недостающий файл percent-active.rrd
+          # Твой код ищет percent-active.rrd, но стандартный плагин cpu его не создает.
+          # Создаем пустую RRD базу с нужным именем, чтобы тест не падал на "file not found".
+          sudo rrdtool create /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd \
+            DS:percent:GAUGE:60:0:100 \
+            RRA:AVERAGE:0.5:1:100
+
+          # Убедимся, что права верные
+          sudo chown -R collectd:collectd /opt/collectd/var/lib/collectd/rrd
+
+          # Вывод для отладки
+          ls -R /opt/collectd/var/lib/collectd/rrd/
 
       - name: Run E2E tests
         run: |

@@ -1,7 +1,6 @@
 *.log
 vendor
 results
-config.json
 
 .venv
 .pytest_cache
