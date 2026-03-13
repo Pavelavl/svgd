@@ -1,19 +1,23 @@
-CC = gcc
-CFLAGS = -Ilsrp -Wall -Wextra -O2 -pthread
-LIBS = -lrrd -lduktape
+# ============================================================
+# SVGD Makefile
+# ============================================================
 
-LSRP_DIR = lsrp
-BIN_DIR = bin
+# === Configuration ===
+CC       = gcc
+CFLAGS   = -Ilsrp -Wall -Wextra -O2 -pthread
+LIBS     = -lrrd -lduktape
+
+LSRP_DIR    = lsrp
+BIN_DIR     = bin
 EXAMPLES_DIR = examples
 
 SERVER_SRC = src/main.c src/cfg.c src/http.c src/handler.c src/rrd/reader.c src/rrd/cache.c src/rrd/svg.c $(LSRP_DIR)/lsrp_server.c
 SERVER_BIN = svgd
-HTTP_SRC = src/http.c
-GATE_SRC = gate/*.c $(LSRP_DIR)/lsrp_client.c
-GATE_BIN = svgd-gate
-
+GATE_SRC   = gate/*.c $(LSRP_DIR)/lsrp_client.c
+GATE_BIN   = svgd-gate
 CLIENT_BIN = $(LSRP_DIR)/bin/lsrp
-PORT := $(shell jq -r '.server.tcp_port // "8081"' config.json)
+
+PORT   := $(shell jq -r '.server.tcp_port // "8081"' config.json)
 PERIOD = 3600
 
 SVG_FILES = \
@@ -25,41 +29,41 @@ SVG_FILES = \
 	$(EXAMPLES_DIR)/disk.svg \
 	$(EXAMPLES_DIR)/pgsql.svg
 
-.PHONY: all build build-backend build-tests clean run run-backend generate submodule test test-e2e test-load test-ui install docker-build docker-up docker-down docker-logs docker-test docker-test-ui test-benchmark demo demo-down run-multi down-multi collectd-base svgd-base docker-bases
+# === Phony Targets ===
+.PHONY: all build build-backend clean install
+.PHONY: run run-backend generate
+.PHONY: test test-e2e test-load test-ui
+.PHONY: docker-build docker-up docker-down docker-logs docker-test docker-test-ui
+.PHONY: docker-bases svgd-base collectd-base
+.PHONY: run-multi down-multi
+.PHONY: bench-svgd-only bench-comparison bench-charts bench-all bench-quick bench-clean
+.PHONY: bench-docker-build bench-docker-up bench-docker-down
+.PHONY: demo demo-down submodule
 
-# Build everything (default)
+# ============================================================
+# BUILD
+# ============================================================
+
 all: build
 
-# Build both backend and gateway
 build: build-backend
 	$(CC) -o $(BIN_DIR)/$(GATE_BIN) $(GATE_SRC) -g $(CFLAGS)
 
-# Build only the backend (svgd)
 build-backend:
 	@mkdir -p $(BIN_DIR)
 	$(CC) -o $(BIN_DIR)/$(SERVER_BIN) $(SERVER_SRC) -g $(CFLAGS) $(LIBS)
 
-build-tests: metrics_collector
+clean:
+	rm -f $(BIN_DIR)/$(SERVER_BIN) $(BIN_DIR)/$(GATE_BIN) $(CLIENT_BIN) $(SVG_FILES)
+	rmdir $(EXAMPLES_DIR) 2>/dev/null || true
 
-metrics_collector: ./tests/metrics_collector.c
-	$(CC) $(CFLAGS) -o ./tests/bin/metrics_collector ./tests/metrics_collector.c
+# ============================================================
+# RUN
+# ============================================================
 
-test-e2e:
-	cd tests && go test -v ./e2e/...
-
-test-load:
-	cd tests && go test -v ./load/...
-
-test: test-e2e test-load
-
-test-ui:
-	./tests/ui/run_tests.sh -v
-
-# Run gateway (main entry point)
 run: build
 	./$(BIN_DIR)/$(GATE_BIN) 127.0.0.1 $(PORT) 8080 ./gate/static
 
-# Run backend only (for development)
 run-backend: build-backend
 	./$(BIN_DIR)/$(SERVER_BIN) ./config.json
 
@@ -72,21 +76,58 @@ generate:
 	$(CLIENT_BIN) localhost:$(PORT) "endpoint=disk/nvme0n1&period=$(PERIOD)" > examples/disk.svg && \
 	$(CLIENT_BIN) localhost:$(PORT) "endpoint=postgresql/connections&period=$(PERIOD)" > examples/pgsql.svg
 
-clean:
-	rm -f $(BIN_DIR)/$(SERVER_BIN) $(BIN_DIR)/$(GATE_BIN) $(CLIENT_BIN) $(SVG_FILES)
-	rmdir $(EXAMPLES_DIR) || true
+# ============================================================
+# TEST
+# ============================================================
 
-submodule:
-	git submodule update --remote
+test: test-e2e test-load
 
-install:
+test-e2e:
+	cd tests && go test -v ./e2e/...
+
+test-load:
+	cd tests && go test -v ./load/...
+
+test-ui:
+	./tests/ui/run_tests.sh -v
+
+test-deps:
 	python -m venv .venv
 	.venv/bin/pip install -r tests/ui/requirements.txt
 
-run-test-postgres:
-	sudo docker run --name some-postgres -e POSTGRES_PASSWORD=mysecretpassword -p 5432:5432 -d bitnami/postgresql
+test-bench: build-backend bench-docker-build bench-docker-up
+	@echo "=== Cross-System Benchmark (svgd vs RRDtool vs Graphite) ==="
+	cd tests/comparison && go run -tags docker . --output results.csv
 
-# Docker targets
+bench-docker-build:
+	docker build -t benchmark-rrdtool tests/comparison/docker/rrdtool/
+	docker build -t benchmark-graphite tests/comparison/docker/graphite/
+
+bench-docker-up:
+	docker run -d --name benchmark-rrdtool -p 8083:8080 \
+		-v /opt/collectd/var/lib/collectd/rrd:/var/lib/collectd/rrd:ro benchmark-rrdtool 2>/dev/null || true
+	docker run -d --name benchmark-graphite -p 8082:80 benchmark-graphite 2>/dev/null || true
+
+bench-docker-down:
+	docker rm -f benchmark-rrdtool benchmark-graphite 2>/dev/null || true
+
+bench-all: bench-comparison bench-charts
+
+# --- Charts ---
+bench-charts:
+	@echo "=== Generating Charts ==="
+	@pip install -q -r tests/comparison/charts/requirements.txt 2>/dev/null || true
+	python3 tests/comparison/charts/generate.py tests/comparison/results.csv --output tests/comparison/charts/output/
+
+# --- Clean ---
+bench-clean: bench-docker-down
+	rm -f tests/comparison/results.csv
+	rm -rf tests/comparison/charts/output/
+
+# ============================================================
+# DOCKER (Basic)
+# ============================================================
+
 docker-build:
 	docker compose build
 
@@ -105,7 +146,10 @@ docker-test:
 docker-test-ui:
 	docker compose --profile test run --rm test-runner make test-ui
 
-# Multi-datasource testing
+# ============================================================
+# DOCKER (Multi-Datasource Demo)
+# ============================================================
+
 svgd-base:
 	docker build -f Dockerfile.base -t svgd-base:latest .
 
@@ -114,35 +158,8 @@ collectd-base:
 
 docker-bases: svgd-base collectd-base
 
-run-multi: svgd-base collectd-base
+run-multi: docker-bases
 	docker-compose -f docker-compose.multi.yml up --build
 
 down-multi:
 	docker-compose -f docker-compose.multi.yml down
-
-# Benchmark targets
-test-benchmark:
-	@echo "Running LSRP vs HTTP benchmark..."
-	cd tests && go test -v -run Test_HTTPVsLSRP ./e2e/... -timeout 10m
-
-demo:
-	@echo "Starting Docker demo with Toxiproxy..."
-	cd tests/benchmark/docker && docker-compose up -d
-	@echo "Demo started:"
-	@echo "  Gateway: http://localhost:8080"
-	@echo "  Toxiproxy API: http://localhost:8474"
-
-demo-down:
-	@echo "Stopping Docker demo..."
-	cd tests/benchmark/docker && docker-compose down
-
-# Cross-system benchmark
-.PHONY: bench-comparison bench-charts bench-all
-
-bench-comparison:
-	cd tests/comparison && go run . --output results.csv
-
-bench-charts:
-	python3 tests/comparison/charts/generate.py tests/comparison/results.csv --output tests/comparison/charts/output/
-
-bench-all: bench-comparison bench-charts

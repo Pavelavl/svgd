@@ -293,33 +293,33 @@ curl http://localhost:8080/network/eth0?period=7200
 
 | Система | Light (c=1) | Medium (c=10) | Heavy (c=50) |
 |---------|-------------|---------------|--------------|
-| **svgd** | 93.11 | 217.04 | 219.99 |
-| **RRDtool CGI** | 13.45 | 13.40 | 13.46 |
-| **Graphite** | 108.39 | 393.70 | 406.01 |
+| **svgd** | 99.85 | 120.47 | 126.23 |
+| **RRDtool CGI** | 13.69 | 13.60 | 13.46 |
+| **Graphite** | 102.19 | 377.05 | 371.88 |
 
 #### Задержка P99 (ms)
 
 | Система | Light (c=1) | Medium (c=10) | Heavy (c=50) |
 |---------|-------------|---------------|--------------|
-| **svgd** | 19.11 | 90.00 | 424.94 |
-| **RRDtool CGI** | 100.51 | 826.19 | 3816.08 |
-| **Graphite** | 15.09 | 38.69 | 143.59 |
+| **svgd** | 16.87 | 96.60 | 414.45 |
+| **RRDtool CGI** | 97.66 | 841.78 | 4239.76 |
+| **Graphite** | 15.64 | 35.83 | 163.79 |
 
 #### Ресурсы: CPU (%)
 
 | Система | Light | Medium | Heavy |
 |---------|-------|--------|-------|
-| **svgd** | 44.6 | 93.2 | 98.0 |
-| **RRDtool CGI** | 103.9 | 105.2 | 106.2 |
-| **Graphite** | 94.4 | 0.4 | 0.5 |
+| **svgd** | 86.5 | 96.6 | 98.7 |
+| **RRDtool CGI** | 104.9 | 106.7 | 105.0 |
+| **Graphite** | 94.7 | 372.1 | 377.2 |
 
 #### Ресурсы: Память (MB)
 
 | Система | Light | Medium | Heavy |
 |---------|-------|--------|-------|
-| **svgd** | 14.4 | 14.6 | 14.6 |
-| **RRDtool CGI** | 14.8 | 15.7 | 14.8 |
-| **Graphite** | 221.1 | 221.7 | 222.4 |
+| **svgd** | 14.6 | 14.7 | 14.9 |
+| **RRDtool CGI** | 27.1 | 27.5 | 29.5 |
+| **Graphite** | 228.3 | 229.8 | 231.0 |
 
 ### Графики сравнения
 
@@ -333,27 +333,25 @@ curl http://localhost:8080/network/eth0?period=7200
 
 ### Выводы
 
-- **svgd vs RRDtool CGI**: svgd в **7-16 раз быстрее** при любой нагрузке
-- **svgd vs Graphite**: Graphite быстрее под высокой нагрузкой благодаря кэшированию, но svgd конкурентен при одиночных запросах
-- **RRDtool CGI**: Не масштабируется — задержка растёт со 100ms до 3800ms при увеличении нагрузки
-- **Память**: svgd потребляет ~14.5 MB, Graphite ~220 MB (в 15 раз больше)
+- **svgd vs RRDtool CGI**: svgd в **7-9 раз быстрее** по RPS, задержка в **6-10 раз ниже**
+- **svgd vs Graphite**: Graphite быстрее под высокой нагрузкой, но использует **15x больше памяти** (230MB vs 15MB)
+- **RRDtool CGI**: Не масштабируется — задержка растёт со 100ms до 4200ms при увеличении нагрузки
+- **Память**: svgd потребляет ~15 MB, RRDtool ~27 MB, Graphite ~230 MB
 - **Стабильность**: svgd показывает предсказуемую производительность во всех сценариях
 
 ### Запуск бенчмарка
 
 ```bash
-# Только svgd (без Docker)
-make bench-comparison
+# Быстрый тест (только svgd, без Docker)
+make bench-quick
 
-# Полное сравнение (требуются Docker-контейнеры)
-docker build -t benchmark-rrdtool tests/comparison/docker/rrdtool/
-docker build -t benchmark-graphite tests/comparison/docker/graphite/
-docker run -d -p 8083:8080 -v /opt/collectd/var/lib/collectd/rrd:/var/lib/collectd/rrd:ro benchmark-rrdtool
-docker run -d -p 8082:80 benchmark-graphite
-cd tests/comparison && go run -tags docker . --output results.csv
+# Полное сравнение с графиками
+make bench-all
 
-# Генерация графиков
-make bench-charts
+# Или пошагово:
+make bench-svgd-only    # Только svgd
+make bench-comparison   # svgd vs RRDtool vs Graphite (требует Docker)
+make bench-charts       # Генерация графиков
 ```
 
 ---
