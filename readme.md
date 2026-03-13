@@ -281,6 +281,83 @@ curl http://localhost:8080/network/eth0?period=7200
 
 ---
 
+## Сравнение с аналогами
+
+Сравнение производительности svgd с RRDtool CGI и Graphite при генерации SVG-графиков.
+
+### Результаты бенчмарка
+
+**Конфигурация теста:** 1000 запросов, период 3600 сек (1 час данных)
+
+#### Пропускная способность (RPS)
+
+| Система | Light (c=1) | Medium (c=10) | Heavy (c=50) |
+|---------|-------------|---------------|--------------|
+| **svgd** | 93.11 | 217.04 | 219.99 |
+| **RRDtool CGI** | 13.45 | 13.40 | 13.46 |
+| **Graphite** | 108.39 | 393.70 | 406.01 |
+
+#### Задержка P99 (ms)
+
+| Система | Light (c=1) | Medium (c=10) | Heavy (c=50) |
+|---------|-------------|---------------|--------------|
+| **svgd** | 19.11 | 90.00 | 424.94 |
+| **RRDtool CGI** | 100.51 | 826.19 | 3816.08 |
+| **Graphite** | 15.09 | 38.69 | 143.59 |
+
+#### Ресурсы: CPU (%)
+
+| Система | Light | Medium | Heavy |
+|---------|-------|--------|-------|
+| **svgd** | 44.6 | 93.2 | 98.0 |
+| **RRDtool CGI** | 103.9 | 105.2 | 106.2 |
+| **Graphite** | 94.4 | 0.4 | 0.5 |
+
+#### Ресурсы: Память (MB)
+
+| Система | Light | Medium | Heavy |
+|---------|-------|--------|-------|
+| **svgd** | 14.4 | 14.6 | 14.6 |
+| **RRDtool CGI** | 14.8 | 15.7 | 14.8 |
+| **Graphite** | 221.1 | 221.7 | 222.4 |
+
+### Графики сравнения
+
+<p align="center">
+  <img src="tests/comparison/charts/output/throughput_comparison.png" width="600"/>
+</p>
+
+<p align="center">
+  <img src="tests/comparison/charts/output/latency_comparison.png" width="600"/>
+</p>
+
+### Выводы
+
+- **svgd vs RRDtool CGI**: svgd в **7-16 раз быстрее** при любой нагрузке
+- **svgd vs Graphite**: Graphite быстрее под высокой нагрузкой благодаря кэшированию, но svgd конкурентен при одиночных запросах
+- **RRDtool CGI**: Не масштабируется — задержка растёт со 100ms до 3800ms при увеличении нагрузки
+- **Память**: svgd потребляет ~14.5 MB, Graphite ~220 MB (в 15 раз больше)
+- **Стабильность**: svgd показывает предсказуемую производительность во всех сценариях
+
+### Запуск бенчмарка
+
+```bash
+# Только svgd (без Docker)
+make bench-comparison
+
+# Полное сравнение (требуются Docker-контейнеры)
+docker build -t benchmark-rrdtool tests/comparison/docker/rrdtool/
+docker build -t benchmark-graphite tests/comparison/docker/graphite/
+docker run -d -p 8083:8080 -v /opt/collectd/var/lib/collectd/rrd:/var/lib/collectd/rrd:ro benchmark-rrdtool
+docker run -d -p 8082:80 benchmark-graphite
+cd tests/comparison && go run -tags docker . --output results.csv
+
+# Генерация графиков
+make bench-charts
+```
+
+---
+
 ## rrdcached
 
 Настройка rrdtool по [инструкции](https://github.com/Pavelavl/cpu-http-monitor).
@@ -445,6 +522,18 @@ curl http://localhost:8080/cpu
 1. Включите rrdcached в config.json
 2. Увеличьте `thread_pool_size`
 3. Уменьшите интервал автообновления в UI
+
+---
+
+## Benchmark
+
+Run the LSRP vs HTTP benchmark yourself:
+
+```bash
+make test-benchmark
+```
+
+See [BENCHMARK.md](docs/BENCHMARK.md) for detailed results and methodology.
 
 ---
 

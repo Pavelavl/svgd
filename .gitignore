@@ -10,3 +10,6 @@ __pycache__
 
 *.md
 docs/
+
+# Benchmark output files
+tests/benchmark/output/*.csv

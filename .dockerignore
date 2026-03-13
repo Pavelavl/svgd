@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+.idea
+.vscode
+*.swp
+*.swo
+
+# Python
+.venv
+venv
+__pycache__
+*.pyc
+
+# Node
+node_modules
+
+# Build artifacts (will be rebuilt in container)
+bin/
+
+# Test outputs
+tests/benchmark/output/*.csv
+
+# Docker
+docker-compose*.yml
+Dockerfile*
+
+# Documentation
+*.md
+docs/
+
+# Misc
+*.log
+*.tmp
+.DS_Store

@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +18,7 @@ import (
 	"lsrp_test/http"
 
 	"github.com/Pavelavl/go-lsrp"
+	"svgd/tests/shared/benchmark"
 )
 
 const (
@@ -89,50 +89,7 @@ type Config struct {
 	} `json:"metrics"`
 }
 
-type RequestResult struct {
-	RequestNum int
-	Latency    time.Duration
-	Success    bool
-	Error      error
-}
-
-type BenchmarkResult struct {
-	TestName      string
-	TotalRequests int
-	SuccessCount  int
-	FailCount     int
-	SuccessRate   float64
-	AvgLatency    time.Duration
-	MedianLatency time.Duration
-	MinLatency    time.Duration
-	MaxLatency    time.Duration
-	P95Latency    time.Duration
-	P99Latency    time.Duration
-	ThroughputRPS float64
-	Duration      time.Duration
-	Latencies     []time.Duration
-}
-
-type MetricsSummary struct {
-	CPUAvg                 float64
-	CPUMedian              float64
-	CPUMax                 float64
-	MemAvgMB               float64
-	MemMedianMB            float64
-	MemMaxMB               float64
-	IOReadMB               float64
-	IOWriteMB              float64
-	IOReadOpsPS            float64
-	IOWriteOpsPS           float64
-	ThreadsAvg             float64
-	ThreadsMax             int
-	FDsAvg                 float64
-	FDsMax                 int
-	CtxSwitchVoluntaryPS   float64
-	CtxSwitchInvoluntaryPS float64
-	PageFaultsMinorPS      float64
-	PageFaultsMajorPS      float64
-}
+// RequestResult, BenchmarkResult, and MetricsSummary are imported from svgd/tests/internal/benchmark
 
 func NewBenchmarkConfig() *BenchmarkConfig {
 	bc := &BenchmarkConfig{
@@ -359,8 +316,8 @@ func (bc *BenchmarkConfig) StopMetricsCollector() error {
 	return nil
 }
 
-func (bc *BenchmarkConfig) RunLoadTest(client any, p proto) (*BenchmarkResult, error) {
-	results := make(chan RequestResult, bc.Requests)
+func (bc *BenchmarkConfig) RunLoadTest(client any, p proto) (*benchmark.BenchmarkResult, error) {
+	results := make(chan benchmark.RequestResult, bc.Requests)
 	var wg sync.WaitGroup
 
 	startTime := time.Now()
@@ -398,7 +355,7 @@ func (bc *BenchmarkConfig) RunLoadTest(client any, p proto) (*BenchmarkResult, e
 				}
 			}
 
-			results <- RequestResult{
+			results <- benchmark.RequestResult{
 				RequestNum: reqNum,
 				Latency:    latency,
 				Success:    success,
@@ -412,71 +369,10 @@ func (bc *BenchmarkConfig) RunLoadTest(client any, p proto) (*BenchmarkResult, e
 
 	duration := time.Since(startTime)
 
-	return analyzeResults(results, duration)
+	return benchmark.AnalyzeResults(results, duration)
 }
 
-func analyzeResults(results chan RequestResult, duration time.Duration) (*BenchmarkResult, error) {
-	br := &BenchmarkResult{
-		Duration:   duration,
-		MinLatency: time.Duration(math.MaxInt64),
-	}
-
-	latencies := make([]time.Duration, 0)
-
-	for result := range results {
-		br.TotalRequests++
-
-		if result.Success {
-			br.SuccessCount++
-			latencies = append(latencies, result.Latency)
-
-			if result.Latency < br.MinLatency {
-				br.MinLatency = result.Latency
-			}
-			if result.Latency > br.MaxLatency {
-				br.MaxLatency = result.Latency
-			}
-		} else {
-			br.FailCount++
-		}
-	}
-
-	if br.SuccessCount == 0 {
-		return br, fmt.Errorf("no successful requests")
-	}
-
-	br.SuccessRate = float64(br.SuccessCount) / float64(br.TotalRequests) * 100
-	br.ThroughputRPS = float64(br.SuccessCount) / duration.Seconds()
-	br.Latencies = latencies
-
-	sort.Slice(latencies, func(i, j int) bool {
-		return latencies[i] < latencies[j]
-	})
-
-	var totalLatency time.Duration
-	for _, l := range latencies {
-		totalLatency += l
-	}
-	br.AvgLatency = totalLatency / time.Duration(len(latencies))
-	br.MedianLatency = latencies[len(latencies)/2]
-
-	if len(latencies) > 0 {
-		p95Idx := int(float64(len(latencies)) * 0.95)
-		p99Idx := int(float64(len(latencies)) * 0.99)
-		if p95Idx >= len(latencies) {
-			p95Idx = len(latencies) - 1
-		}
-		if p99Idx >= len(latencies) {
-			p99Idx = len(latencies) - 1
-		}
-		br.P95Latency = latencies[p95Idx]
-		br.P99Latency = latencies[p99Idx]
-	}
-
-	return br, nil
-}
-
-func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
+func (bc *BenchmarkConfig) AnalyzeMetrics() (*benchmark.MetricsSummary, error) {
 	file, err := os.Open(bc.MetricsFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open metrics file: %w", err)
@@ -495,7 +391,7 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
 
 	records = records[1:]
 
-	summary := &MetricsSummary{}
+	summary := &benchmark.MetricsSummary{}
 	cpuValues := make([]float64, 0)
 	memValues := make([]float64, 0)
 	threadValues := make([]int, 0)
@@ -621,7 +517,7 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*MetricsSummary, error) {
 	return summary, nil
 }
 
-func printResults(testName string, br *BenchmarkResult, ms *MetricsSummary) {
+func printResults(testName string, br *benchmark.BenchmarkResult, ms *benchmark.MetricsSummary) {
 	fmt.Println("\n" + strings.Repeat("=", 70))
 	fmt.Printf("BENCHMARK RESULTS: %s\n", testName)
 	fmt.Println(strings.Repeat("=", 70))
@@ -1119,8 +1015,8 @@ func Test_BenchmarkDirectVsCached(t *testing.T) {
 }
 
 type SavedResults struct {
-	Benchmark *BenchmarkResult `json:"benchmark"`
-	Metrics   *MetricsSummary  `json:"metrics"`
+	Benchmark *benchmark.BenchmarkResult `json:"benchmark"`
+	Metrics   *benchmark.MetricsSummary  `json:"metrics"`
 }
 
 func Repeat(s string, count int) string {

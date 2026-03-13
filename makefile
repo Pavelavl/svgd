@@ -25,7 +25,7 @@ SVG_FILES = \
 	$(EXAMPLES_DIR)/disk.svg \
 	$(EXAMPLES_DIR)/pgsql.svg
 
-.PHONY: all build build-backend build-tests clean run run-backend generate submodule test test-e2e test-load test-ui install docker-build docker-up docker-down docker-logs docker-test docker-test-ui
+.PHONY: all build build-backend build-tests clean run run-backend generate submodule test test-e2e test-load test-ui install docker-build docker-up docker-down docker-logs docker-test docker-test-ui test-benchmark demo demo-down
 
 # Build everything (default)
 all: build
@@ -104,3 +104,30 @@ docker-test:
 
 docker-test-ui:
 	docker compose --profile test run --rm test-runner make test-ui
+
+# Benchmark targets
+test-benchmark:
+	@echo "Running LSRP vs HTTP benchmark..."
+	cd tests && go test -v -run Test_HTTPVsLSRP ./e2e/... -timeout 10m
+
+demo:
+	@echo "Starting Docker demo with Toxiproxy..."
+	cd tests/benchmark/docker && docker-compose up -d
+	@echo "Demo started:"
+	@echo "  Gateway: http://localhost:8080"
+	@echo "  Toxiproxy API: http://localhost:8474"
+
+demo-down:
+	@echo "Stopping Docker demo..."
+	cd tests/benchmark/docker && docker-compose down
+
+# Cross-system benchmark
+.PHONY: bench-comparison bench-charts bench-all
+
+bench-comparison:
+	cd tests/comparison && go run . --output results.csv
+
+bench-charts:
+	python3 tests/comparison/charts/generate.py tests/comparison/results.csv --output tests/comparison/charts/output/
+
+bench-all: bench-comparison bench-charts
