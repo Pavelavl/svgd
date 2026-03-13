@@ -84,7 +84,12 @@
             z-index: 200;
             border-radius: 0;
             margin: 0;
-            overflow: auto;
+            overflow: hidden;
+        }
+
+        .panel.fullscreen .graph-container {
+            flex: 1;
+            min-height: 0;
         }
 
         .panel-header {
@@ -577,6 +582,46 @@
             outline-offset: 2px;
             border-radius: 4px;
         }
+
+        .datasource-list {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .datasource-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.5rem;
+            background: var(--bg-primary);
+            border-radius: 4px;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .datasource-item.active {
+            border: 1px solid var(--accent-blue);
+        }
+
+        .datasource-item-name {
+            font-weight: 600;
+        }
+
+        .datasource-item-host {
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+        }
+
+        .datasource-item-actions {
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .datasource-item-actions button {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.7rem;
+            border-radius: 3px;
+        }
     </style>
 </head>
 
@@ -603,6 +648,17 @@
                 <svg class="search-icon icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                 </svg>
+            </div>
+            <div class="dropdown" id="datasourceDropdown">
+                <button class="btn">
+                    <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+                    </svg>
+                    <span id="currentDatasource">default</span>
+                </button>
+                <div class="dropdown-content" id="datasourceDropdownContent">
+                    <!-- Populated by JS -->
+                </div>
             </div>
             <div class="auto-refresh-indicator">
                 <span class="status-dot active" id="statusDot"></span>
@@ -712,6 +768,16 @@
             </div>
         </div>
 
+        <div class="settings-section">
+            <div class="settings-section-title">Datasources</div>
+            <div id="datasourceList" class="datasource-list">
+                <!-- Populated by JS -->
+            </div>
+            <button class="btn" onclick="openModal('addDatasourceModal')" style="width: 100%; margin-top: 0.5rem;">
+                + Add Datasource
+            </button>
+        </div>
+
         <button class="btn" onclick="resetDashboard()" style="width: 100%; margin-top: 1rem;">
             Reset to Defaults
         </button>
@@ -807,6 +873,34 @@
                 <button class="btn" onclick="closeModal('importModal')">Cancel</button>
                 <button class="btn" style="background-color: var(--accent-blue); color: white;" onclick="importDashboard()">Import</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Add Datasource Modal -->
+    <div id="addDatasourceModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title">Add Datasource</h2>
+                <span class="close-btn" onclick="closeModal('addDatasourceModal')">✕</span>
+            </div>
+            <form id="addDatasourceForm" onsubmit="handleAddDatasource(event)">
+                <div class="form-group">
+                    <label class="form-label">Name</label>
+                    <input type="text" id="newDsName" placeholder="e.g., production" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Host</label>
+                    <input type="text" id="newDsHost" placeholder="e.g., 192.168.1.50 or backend2" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Port</label>
+                    <input type="number" id="newDsPort" value="8081" required>
+                </div>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                    <button type="button" class="btn" onclick="closeModal('addDatasourceModal')">Cancel</button>
+                    <button type="submit" class="btn" style="background-color: var(--accent-blue); color: white;">Add</button>
+                </div>
+            </form>
         </div>
     </div>
 

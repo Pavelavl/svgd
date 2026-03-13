@@ -1,0 +1,18 @@
+# Base image with pre-built duktape - build once, cache forever
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libc6-dev make librrd-dev curl ca-certificates xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /tmp
+
+# Build duktape from source once
+RUN curl -fsSL https://github.com/svaarala/duktape/releases/download/v2.7.0/duktape-2.7.0.tar.xz -o duktape.tar.xz \
+    && tar xf duktape.tar.xz \
+    && cd duktape-2.7.0 \
+    && gcc -O2 -shared -fPIC -o libduktape.so src/duktape.c -lm \
+    && install -m 644 libduktape.so /usr/local/lib/ \
+    && install -m 644 src/duktape.h src/duk_config.h /usr/local/include/ \
+    && ldconfig \
+    && rm -rf /tmp/duktape*

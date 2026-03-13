@@ -1,0 +1,46 @@
+# Pre-built collectd base image - build once, cache forever
+FROM debian:bookworm-slim
+
+# Install build dependencies and runtime deps together
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential wget bzip2 gnupg ca-certificates \
+    librrd-dev libpq-dev libgcrypt20-dev libperl-dev \
+    libcurl4-openssl-dev libxml2-dev libmnl-dev libyajl-dev \
+    librrd8 libpq5 libgcrypt20 libcurl4 libxml2 libyajl2 libmnl0 curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download and build collectd once
+WORKDIR /tmp
+RUN wget -q https://github.com/collectd/collectd/releases/download/collectd-5.12.0/collectd-5.12.0.tar.bz2 \
+    && tar xjf collectd-5.12.0.tar.bz2 \
+    && cd collectd-5.12.0 \
+    && ./configure \
+        --prefix=/opt/collectd \
+        --disable-python \
+        --disable-werror \
+        --enable-postgresql \
+        --enable-rrdtool \
+        --enable-aggregation \
+        --enable-cpu \
+        --enable-df \
+        --enable-disk \
+        --enable-interface \
+        --enable-load \
+        --enable-memory \
+        --enable-processes \
+        --enable-swap \
+        --enable-uptime \
+        --enable-random \
+        LIBS="-lgcrypt" \
+    && make -j$(nproc) \
+    && make install \
+    && rm -rf /tmp/collectd*
+
+# Create directories
+RUN mkdir -p /opt/collectd/var/lib/collectd/rrd /var/run/collectd
+
+# Create non-root user
+RUN useradd -r -s /bin/false collectd \
+    && chown -R collectd:collectd /opt/collectd/var
+
+VOLUME ["/opt/collectd/var/lib/collectd/rrd"]

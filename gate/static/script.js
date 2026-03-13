@@ -6,7 +6,9 @@ const config = {
     customTimeRange: null,
     currentPeriod: 3600,
     dashboardName: 'System Monitoring Dashboard',
-    availableMetrics: [] // Will be loaded dynamically
+    availableMetrics: [],
+    datasources: [],
+    activeDatasource: 'default'
 };
 
 const gridConfig = {
@@ -176,7 +178,8 @@ window.hideTooltip = function() {
 // ===== API Functions =====
 async function fetchAvailableMetrics() {
     try {
-        const url = `${config.apiBaseUrl}/_config/metrics`;
+        const ds = config.activeDatasource ? `?datasource=${config.activeDatasource}` : '';
+        const url = `${config.apiBaseUrl}/_config/metrics${ds}`;
         console.log('Fetching metrics from:', url);
         const response = await fetch(url);
 
@@ -207,11 +210,260 @@ async function fetchAvailableMetrics() {
     }
 }
 
+// ===== Datasource API Functions =====
+async function fetchDatasources() {
+    try {
+        const response = await fetch(`${config.apiBaseUrl}/_datasources`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        config.datasources = data.datasources || [];
+
+        // Set default datasource
+        if (data.default && !localStorage.getItem('svgd-active-datasource')) {
+            config.activeDatasource = data.default;
+        }
+
+        return true;
+    } catch (error) {
+        console.error('Failed to fetch datasources:', error);
+        showToast('Failed to load datasources', 'error');
+        return false;
+    }
+}
+
+async function addDatasource(name, host, port) {
+    try {
+        const response = await fetch(`${config.apiBaseUrl}/_datasources`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, host, port })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Failed to add');
+        }
+
+        await fetchDatasources();
+        renderDatasourceList();
+        showToast(`Datasource "${name}" added`, 'success');
+        return true;
+    } catch (error) {
+        showToast(error.message, 'error');
+        return false;
+    }
+}
+
+async function deleteDatasource(name) {
+    try {
+        const response = await fetch(`${config.apiBaseUrl}/_datasources/${name}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok && response.status !== 204) {
+            throw new Error('Failed to delete');
+        }
+
+        await fetchDatasources();
+
+        // Switch to another datasource if deleted active (AFTER fetchDatasources updates the list)
+        if (config.activeDatasource === name) {
+            config.activeDatasource = config.datasources.length > 0
+                ? config.datasources[0].name
+                : '';
+        }
+
+        renderDatasourceList();
+        updateDatasourceDropdown();
+        showToast(`Datasource "${name}" deleted`, 'success');
+        return true;
+    } catch (error) {
+        showToast(error.message, 'error');
+        return false;
+    }
+}
+
+async function setDefaultDatasource(name) {
+    try {
+        const response = await fetch(`${config.apiBaseUrl}/_datasources/${name}/default`, {
+            method: 'PUT'
+        });
+
+        if (!response.ok) throw new Error('Failed to set default');
+
+        await fetchDatasources();
+        renderDatasourceList();
+        showToast(`"${name}" set as default`, 'success');
+        return true;
+    } catch (error) {
+        showToast(error.message, 'error');
+        return false;
+    }
+}
+
+async function testDatasource(name) {
+    try {
+        const response = await fetch(`${config.apiBaseUrl}/_config/metrics?datasource=${name}`);
+        if (response.ok) {
+            showToast(`Connection to "${name}" successful`, 'success');
+            return true;
+        } else {
+            throw new Error('Connection failed');
+        }
+    } catch (error) {
+        showToast(`Connection to "${name}" failed`, 'error');
+        return false;
+    }
+}
+
+function renderDatasourceList() {
+    const container = document.getElementById('datasourceList');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (config.datasources.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.style.cssText = 'color: var(--text-secondary); font-size: 0.75rem;';
+        emptyMsg.textContent = 'No datasources configured';
+        container.appendChild(emptyMsg);
+        return;
+    }
+
+    config.datasources.forEach(ds => {
+        const item = document.createElement('div');
+        item.className = 'datasource-item' + (ds.name === config.activeDatasource ? ' active' : '');
+
+        const info = document.createElement('div');
+        const nameEl = document.createElement('div');
+        nameEl.className = 'datasource-item-name';
+        nameEl.textContent = ds.name;
+
+        const hostEl = document.createElement('div');
+        hostEl.className = 'datasource-item-host';
+        hostEl.textContent = ds.host + ':' + ds.port;
+
+        info.appendChild(nameEl);
+        info.appendChild(hostEl);
+
+        const actions = document.createElement('div');
+        actions.className = 'datasource-item-actions';
+
+        const testBtn = document.createElement('button');
+        testBtn.className = 'btn btn-sm';
+        testBtn.title = 'Test';
+        testBtn.textContent = 'Test';
+        testBtn.onclick = () => testDatasource(ds.name);
+
+        const defaultBtn = document.createElement('button');
+        defaultBtn.className = 'btn btn-sm';
+        defaultBtn.title = 'Set default';
+        defaultBtn.textContent = 'Default';
+        defaultBtn.onclick = () => setDefaultDatasource(ds.name);
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'btn btn-sm';
+        deleteBtn.title = 'Delete';
+        deleteBtn.textContent = '✕';
+        deleteBtn.onclick = () => deleteDatasource(ds.name);
+
+        actions.appendChild(testBtn);
+        actions.appendChild(defaultBtn);
+        actions.appendChild(deleteBtn);
+
+        item.appendChild(info);
+        item.appendChild(actions);
+        container.appendChild(item);
+    });
+}
+
+function handleAddDatasource(e) {
+    e.preventDefault();
+    const name = document.getElementById('newDsName').value.trim();
+    const host = document.getElementById('newDsHost').value.trim();
+    const port = parseInt(document.getElementById('newDsPort').value, 10);
+
+    if (!name) {
+        showToast('Please enter a name', 'error');
+        return;
+    }
+    if (!host) {
+        showToast('Please enter a host', 'error');
+        return;
+    }
+    if (isNaN(port) || port < 1 || port > 65535) {
+        showToast('Port must be between 1 and 65535', 'error');
+        return;
+    }
+
+    if (addDatasource(name, host, port)) {
+        closeModal('addDatasourceModal');
+        document.getElementById('addDatasourceForm').reset();
+    }
+}
+
+function updateDatasourceDropdown() {
+    const container = document.getElementById('datasourceDropdownContent');
+    const current = document.getElementById('currentDatasource');
+
+    if (current) {
+        current.textContent = config.activeDatasource || 'None';
+    }
+
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (config.datasources.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'dropdown-item';
+        emptyMsg.style.color = 'var(--text-secondary)';
+        emptyMsg.textContent = 'No datasources';
+        container.appendChild(emptyMsg);
+        return;
+    }
+
+    config.datasources.forEach(ds => {
+        const item = document.createElement('div');
+        item.className = 'dropdown-item';
+        item.onclick = () => selectDatasource(ds.name);
+
+        const indicator = document.createElement('span');
+        indicator.style.cssText = 'width: 8px; height: 8px; border-radius: 50%; background: ' +
+            (ds.name === config.activeDatasource ? 'var(--accent-green)' : 'transparent') +
+            '; display: inline-block;';
+        item.appendChild(indicator);
+
+        item.appendChild(document.createTextNode(' ' + ds.name + ' '));
+
+        // Check if default
+        if (ds.name === config.datasources.default) {
+            const defaultLabel = document.createElement('span');
+            defaultLabel.style.color = 'var(--text-secondary)';
+            defaultLabel.textContent = '(default)';
+            item.appendChild(defaultLabel);
+        }
+
+        container.appendChild(item);
+    });
+}
+
+function selectDatasource(name) {
+    config.activeDatasource = name;
+    localStorage.setItem('svgd-active-datasource', name);
+    updateDatasourceDropdown();
+    closeDropdown('datasourceDropdown');
+    updateAllPanels();
+    fetchAvailableMetrics();
+    showToast(`Switched to "${name}"`, 'info');
+}
+
 async function fetchSVG(endpoint, period, width, height) {
     try {
         const w = width || 800;
         const h = height || 450;
-        const url = `${config.apiBaseUrl}/${endpoint}?period=${period}&width=${w}&height=${h}`;
+        const ds = config.activeDatasource ? `&datasource=${config.activeDatasource}` : '';
+        const url = `${config.apiBaseUrl}/${endpoint}?period=${period}&width=${w}&height=${h}${ds}`;
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -473,8 +725,9 @@ async function updatePanel(panelConfig) {
     if (!graphContainer) return;
 
     const panel = document.getElementById(`panel-${panelConfig.id}`);
-    const width = panel ? panel.offsetWidth : 800;
-    const height = panel ? panel.offsetHeight - 60 : 450;
+    // Use graphContainer dimensions when available, otherwise estimate from panel
+    const width = graphContainer.offsetWidth > 0 ? graphContainer.offsetWidth : (panel ? panel.offsetWidth : 800);
+    const height = graphContainer.offsetHeight > 0 ? graphContainer.offsetHeight : (panel ? panel.offsetHeight - 80 : 450);
 
     graphContainer.innerHTML = '<div class="loading"></div>';
 
@@ -482,10 +735,24 @@ async function updatePanel(panelConfig) {
 
     if (result.success) {
         graphContainer.innerHTML = result.svg;
-        
+
         const theme = document.body.classList.contains('light-theme') ? 'light' : 'dark';
         const svgElement = graphContainer.querySelector('svg');
         if (svgElement) {
+            // Save original dimensions for viewBox
+            const origWidth = svgElement.getAttribute('width') || width;
+            const origHeight = svgElement.getAttribute('height') || height;
+
+            // Remove fixed dimensions to allow CSS sizing (100% width/height)
+            svgElement.removeAttribute('width');
+            svgElement.removeAttribute('height');
+            svgElement.style.width = '100%';
+            svgElement.style.height = '100%';
+
+            // Ensure viewBox exists for proper scaling
+            if (!svgElement.hasAttribute('viewBox')) {
+                svgElement.setAttribute('viewBox', `0 0 ${origWidth} ${origHeight}`);
+            }
             applySVGTheme(svgElement, theme);
         }
         
@@ -556,8 +823,22 @@ function addPanel(panelConfig) {
 
 function toggleFullscreen(panelId) {
     const panel = document.getElementById(`panel-${panelId}`);
-    if (panel) {
-        panel.classList.toggle('fullscreen');
+    const panelConfig = config.panels.find(p => p.id === panelId);
+    if (panel && panelConfig) {
+        const isFullscreen = panel.classList.toggle('fullscreen');
+        if (isFullscreen) {
+            // Remove inline height to let CSS take over in fullscreen
+            panel.style.height = '';
+        } else {
+            // Restore saved height when exiting fullscreen
+            if (panelConfig.height) {
+                panel.style.height = panelConfig.height + 'px';
+            }
+        }
+        // Wait for CSS transition (0.3s) to complete before refreshing
+        setTimeout(() => {
+            updatePanel(panelConfig);
+        }, 350);
     }
 }
 
@@ -584,9 +865,14 @@ function exportPanel(panelId, format) {
 
 // ===== Dashboard Management =====
 async function initializeDashboard() {
-    // First load available metrics
+    // Load datasources first
+    await fetchDatasources();
+    updateDatasourceDropdown();
+    renderDatasourceList();
+
+    // Then load metrics
     await fetchAvailableMetrics();
-    
+
     const savedPanels = localStorage.getItem('svgd-panels');
     const savedConfig = localStorage.getItem('svgd-config');
     
@@ -936,6 +1222,17 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleDropdown('exportDropdown');
     });
 
+    // Datasource dropdown
+    document.querySelector('#datasourceDropdown .btn').addEventListener('click', () => {
+        toggleDropdown('datasourceDropdown');
+    });
+
+    // Load saved active datasource
+    const savedDs = localStorage.getItem('svgd-active-datasource');
+    if (savedDs) {
+        config.activeDatasource = savedDs;
+    }
+
     // Search panels
     document.getElementById('searchPanels').addEventListener('input', function(e) {
         searchTerm = e.target.value;
@@ -1028,11 +1325,26 @@ document.addEventListener('DOMContentLoaded', () => {
     // Keyboard shortcuts
     document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape') {
+            // Close modals
             document.querySelectorAll('.modal.show').forEach(modal => {
                 modal.classList.remove('show');
             });
+            // Close dropdowns
             document.querySelectorAll('.dropdown.show').forEach(dropdown => {
                 dropdown.classList.remove('show');
+            });
+            // Exit fullscreen panels
+            document.querySelectorAll('.panel.fullscreen').forEach(panel => {
+                const panelId = panel.id.replace('panel-', '');
+                const panelConfig = config.panels.find(p => p.id === panelId);
+                panel.classList.remove('fullscreen');
+                // Restore saved height when exiting fullscreen
+                if (panelConfig) {
+                    if (panelConfig.height) {
+                        panel.style.height = panelConfig.height + 'px';
+                    }
+                    setTimeout(() => updatePanel(panelConfig), 350);
+                }
             });
         }
     });

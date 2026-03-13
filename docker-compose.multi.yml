@@ -1,0 +1,88 @@
+services:
+  # Gateway
+  gate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./bin/svgd-gate", "backend1", "8081", "8080", "./gate/static"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./datasources.docker-multi.json:/app/datasources.json:ro
+    depends_on:
+      - backend1
+      - backend2
+    restart: unless-stopped
+
+  # Backend 1 (default)
+  backend1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./bin/svgd", "./config.backend1.json"]
+    volumes:
+      - ./config.backend1.json:/app/config.backend1.json:ro
+      - rrd-data-1:/opt/collectd/var/lib/collectd/rrd:ro
+    depends_on:
+      collectd1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8081 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Backend 2 (second datasource)
+  backend2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./bin/svgd", "./config.backend2.json"]
+    volumes:
+      - ./config.backend2.json:/app/config.backend2.json:ro
+      - rrd-data-2:/opt/collectd/var/lib/collectd/rrd:ro
+    depends_on:
+      collectd2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8081 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Collectd instances with different hostnames
+  collectd1:
+    build:
+      context: ./.infra/collectd
+      dockerfile: Dockerfile
+    environment:
+      - COLLECTD_HOSTNAME=server1
+    volumes:
+      - rrd-data-1:/opt/collectd/var/lib/collectd/rrd
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /opt/collectd/var/lib/collectd/rrd/server1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  collectd2:
+    build:
+      context: ./.infra/collectd
+      dockerfile: Dockerfile
+    environment:
+      - COLLECTD_HOSTNAME=server2
+    volumes:
+      - rrd-data-2:/opt/collectd/var/lib/collectd/rrd
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "test -d /opt/collectd/var/lib/collectd/rrd/server2 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  rrd-data-1:
+  rrd-data-2:

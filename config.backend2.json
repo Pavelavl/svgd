@@ -1,0 +1,57 @@
+{
+	"server": {
+		"tcp_port": 8081,
+		"protocol": "lsrp",
+		"allowed_ips": "127.0.0.1",
+		"rrdcached_addr": "",
+		"thread_pool_size": 4,
+		"cache_ttl_seconds": 5,
+		"verbose": 0
+	},
+	"rrd": {
+		"base_path": "/opt/collectd/var/lib/collectd/rrd/server2"
+	},
+	"js": {
+		"script_path": "./src/scripts/generate_svg.js"
+	},
+	"metrics": [
+		{
+			"endpoint": "cpu",
+			"rrd_path": "cpu-total/percent-active.rrd",
+			"requires_param": false,
+			"title": "CPU Utilization",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f"
+		},
+		{
+			"endpoint": "ram",
+			"rrd_path": "memory/percent-used.rrd",
+			"requires_param": false,
+			"title": "RAM Utilization",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f"
+		},
+		{
+			"endpoint": "system/load",
+			"rrd_path": "load/load.rrd",
+			"requires_param": false,
+			"title": "System Load Average",
+			"y_label": "Load",
+			"is_percentage": false,
+			"value_format": "%.2f"
+		},
+		{
+			"endpoint": "system/uptime",
+			"rrd_path": "uptime/uptime.rrd",
+			"requires_param": false,
+			"title": "System Uptime",
+			"y_label": "hours",
+			"is_percentage": false,
+			"value_format": "%.1f",
+			"transform_type": "divide",
+			"transform_divisor": 3600
+		}
+	]
+}

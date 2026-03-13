@@ -25,7 +25,7 @@ SVG_FILES = \
 	$(EXAMPLES_DIR)/disk.svg \
 	$(EXAMPLES_DIR)/pgsql.svg
 
-.PHONY: all build build-backend build-tests clean run run-backend generate submodule test test-e2e test-load test-ui install docker-build docker-up docker-down docker-logs docker-test docker-test-ui test-benchmark demo demo-down
+.PHONY: all build build-backend build-tests clean run run-backend generate submodule test test-e2e test-load test-ui install docker-build docker-up docker-down docker-logs docker-test docker-test-ui test-benchmark demo demo-down run-multi down-multi collectd-base svgd-base docker-bases
 
 # Build everything (default)
 all: build
@@ -104,6 +104,21 @@ docker-test:
 
 docker-test-ui:
 	docker compose --profile test run --rm test-runner make test-ui
+
+# Multi-datasource testing
+svgd-base:
+	docker build -f Dockerfile.base -t svgd-base:latest .
+
+collectd-base:
+	docker build -f .infra/collectd/Dockerfile.base -t svgd-collectd-base:latest .infra/collectd/
+
+docker-bases: svgd-base collectd-base
+
+run-multi: svgd-base collectd-base
+	docker-compose -f docker-compose.multi.yml up --build
+
+down-multi:
+	docker-compose -f docker-compose.multi.yml down
 
 # Benchmark targets
 test-benchmark:

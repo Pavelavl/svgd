@@ -1,0 +1,7 @@
+{
+  "default": "backend1",
+  "datasources": [
+    {"name": "backend1", "host": "backend1", "port": 8081},
+    {"name": "backend2", "host": "backend2", "port": 8081}
+  ]
+}
