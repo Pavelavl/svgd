@@ -1,121 +1,180 @@
-name: Tests
+name: CI
 
 on:
   push:
-    branches: [master, main, develop]
+    branches: [master, main]
   pull_request:
     branches: [master, main]
 
 jobs:
-  build-and-test:
+  build:
     runs-on: ubuntu-22.04
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install system dependencies
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            librrd-dev duktape \
-            gcc make jq \
-            golang-go duktape-dev \
-            python3 python3-venv python3-pip \
-            lsof curl procps collectd
+          sudo apt-get install -y librrd-dev duktape-dev gcc make jq
 
-      - name: Setup Go environment
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache-dependency-path: tests/go.sum
-
-      - name: Download Go dependencies
-        run: |
-          cd tests && go mod download
-
-      - name: Build application
+      - name: Build
         run: make build
 
-      - name: Build test utilities
-        run: make build-tests
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: bin/
+          retention-days: 1
 
-      - name: Install Python dependencies
+  test-unit:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: bin/
+
+      - name: Fix permissions
+        run: chmod +x bin/*
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librrd-dev duktape-dev collectd rrdtool rrdcached gcc
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: tests/go.sum
+
+      - name: Setup environment
+        run: |
+          set -e
+
+          # Create user if not exist
+          sudo useradd -r -s /bin/false collectd 2>/dev/null || true
+
+          # Setup directories
+          sudo mkdir -p /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total
+          sudo mkdir -p /var/run
+
+          # Debug: check rrdtool
+          which rrdtool
+          rrdtool --version
+
+          # Create RRD file with proper start time, then populate chronologically
+          NOW=$(date +%s)
+          START=$((NOW - 7200))
+          echo "Creating RRD with START=$START NOW=$NOW"
+
+          sudo rrdtool create /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd \
+            --start "$START" \
+            DS:percent:GAUGE:60:0:100 RRA:AVERAGE:0.5:1:100
+
+          echo "RRD file created, populating..."
+
+          for i in $(seq 1 120); do
+            TS=$((START + i * 60))
+            VALUE=$((20 + RANDOM % 40))
+            sudo rrdtool update /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd "$TS:$VALUE"
+          done
+
+          echo "Done populating RRD"
+          ls -la /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/
+
+          sudo chown -R collectd:collectd /opt/collectd/var/lib/collectd
+
+          # Start rrdcached
+          sudo mkdir -p /var/lib/rrdcached/journal
+          sudo rrdcached -p /var/run/rrdcached.pid \
+            -l unix:/var/run/rrdcached.sock \
+            -B -F \
+            -b /opt/collectd/var/lib/collectd/rrd \
+            -j /var/lib/rrdcached/journal \
+            -f 3600 -w 1800 -z 900 &
+          sleep 2
+
+      - name: Run E2E tests
+        run: cd tests && go test -v ./e2e/...
+
+      - name: Run Load tests
+        run: cd tests && go test -v ./load/...
+
+  test-ui:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: bin/
+
+      - name: Fix permissions
+        run: chmod +x bin/*
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y librrd-dev duktape-dev collectd rrdtool rrdcached python3 python3-venv
+
+      - name: Setup environment
+        run: |
+          set -e
+
+          sudo useradd -r -s /bin/false collectd 2>/dev/null || true
+
+          sudo mkdir -p /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total
+
+          # Debug: check rrdtool
+          which rrdtool
+          rrdtool --version
+
+          # Create RRD file with proper start time, then populate chronologically
+          NOW=$(date +%s)
+          START=$((NOW - 7200))
+          echo "Creating RRD with START=$START NOW=$NOW"
+
+          sudo rrdtool create /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd \
+            --start "$START" \
+            DS:percent:GAUGE:60:0:100 RRA:AVERAGE:0.5:1:100
+
+          echo "RRD file created, populating..."
+
+          for i in $(seq 1 120); do
+            TS=$((START + i * 60))
+            VALUE=$((20 + RANDOM % 40))
+            sudo rrdtool update /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd "$TS:$VALUE"
+          done
+
+          echo "Done populating RRD"
+          ls -la /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/
+
+          sudo chown -R collectd:collectd /opt/collectd/var/lib/collectd
+
+      - name: Install Python deps
         run: |
           python3 -m venv .venv
           .venv/bin/pip install -r tests/ui/requirements.txt
 
-      - name: Setup Collectd and RRD files for E2E tests
-        run: |
-          # 1. Устанавливаем collectd и rrdtool (для создания файлов вручную)
-          sudo apt-get install -y collectd rrdtool
-
-          # 2. Создаем нужные директории
-          sudo mkdir -p /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total
-          sudo mkdir -p /var/run/collectd
-
-          # 3. !!! ВАЖНО: Даем права пользователю collectd писать в эту папку
-          sudo chown -R collectd:collectd /opt/collectd/var/lib/collectd
-
-          # 4. Конфигурируем collectd
-          cat <<EOF | sudo tee /etc/collectd/collectd.conf
-          FQDNLookup false
-          Hostname "localhost"
-          Interval 1
-
-          LoadPlugin cpu
-          LoadPlugin rrdtool
-          LoadPlugin logfile
-
-          <Plugin logfile>
-              LogLevel "info"
-              File "/var/log/collectd.log"
-          </Plugin>
-
-          <Plugin rrdtool>
-              DataDir "/opt/collectd/var/lib/collectd/rrd"
-          </Plugin>
-          EOF
-
-          # 5. Запускаем collectd
-          sudo service collectd start
-
-          # 6. Ждем появления стандартных файлов (cpu-0, cpu-1 и т.д.)
-          echo "Waiting for collectd to start writing..."
-          for i in {1..20}; do
-            if [ "$(ls -A /opt/collectd/var/lib/collectd/rrd/localhost 2>/dev/null)" ]; then
-              echo "Collectd started writing!"
-              break
-            fi
-            sleep 1
-          done
-
-          # 7. !!! ФИКС ДЛЯ ТЕСТА: Создаем недостающий файл percent-active.rrd
-          # Твой код ищет percent-active.rrd, но стандартный плагин cpu его не создает.
-          # Создаем пустую RRD базу с нужным именем, чтобы тест не падал на "file not found".
-          sudo rrdtool create /opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd \
-            DS:percent:GAUGE:60:0:100 \
-            RRA:AVERAGE:0.5:1:100
-
-          # Убедимся, что права верные
-          sudo chown -R collectd:collectd /opt/collectd/var/lib/collectd/rrd
-
-          # Вывод для отладки
-          ls -R /opt/collectd/var/lib/collectd/rrd/
-
-      - name: Run E2E tests
-        run: |
-          . .venv/bin/activate
-          make test-e2e
-
-      - name: Run Load tests
-        run: |
-          . .venv/bin/activate
-          make test-load
-
-      - name: Start servers for UI tests
+      - name: Start servers
         run: |
           ./bin/svgd ./config.json &
           ./bin/svgd-gate 127.0.0.1 8081 8080 ./gate/static &
@@ -126,12 +185,21 @@ jobs:
           . .venv/bin/activate
           make test-ui
 
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
+  docker:
+    needs: [test-unit, test-ui]
+    runs-on: ubuntu-22.04
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          name: test-results
-          path: |
-            tests/results/
-            tests/logs/
-          retention-days: 7
+          submodules: recursive
+
+      - name: Build base images
+        run: make docker-bases
+
+      - name: Build Docker image
+        run: docker build -t svgd:${{ github.sha }} .
+
+      - name: Build multi-datasource demo
+        run: docker-compose -f docker-compose.multi.yml build

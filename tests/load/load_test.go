@@ -1,6 +1,7 @@
 package benchmarks
 
 import (
+	"bytes"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
@@ -16,9 +17,9 @@ import (
 	"time"
 
 	"lsrp_test/http"
+	"svgd/tests/shared/benchmark"
 
 	"github.com/Pavelavl/go-lsrp"
-	"svgd/tests/shared/benchmark"
 )
 
 const (
@@ -63,9 +64,9 @@ type Config struct {
 	Server struct {
 		TCPPort         int    `json:"tcp_port"`
 		AllowedIps      string `json:"allowed_ips"`
-		RRDCachedAddr    string `json:"rrdcached_addr"`
+		RRDCachedAddr   string `json:"rrdcached_addr"`
 		Protocol        string `json:"protocol"`
-		ThreadPoolSize   int    `json:"thread_pool_size"`
+		ThreadPoolSize  int    `json:"thread_pool_size"`
 		CacheTTLMetrics int    `json:"cache_ttl_seconds"`
 		Verbose         int    `json:"verbose"`
 	} `json:"server"`
@@ -93,7 +94,7 @@ type Config struct {
 
 func NewBenchmarkConfig() *BenchmarkConfig {
 	bc := &BenchmarkConfig{
-		Requests:    1000,  // Reduced for faster testing
+		Requests:    1000, // Reduced for faster testing
 		Concurrency: DefaultConcurrency,
 		Duration:    DefaultDuration,
 		RRDFile:     "/opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd",
@@ -101,6 +102,15 @@ func NewBenchmarkConfig() *BenchmarkConfig {
 		LogDir:      filepath.Join(repoRoot, "tests", "load", "logs"),
 		ConfigFile:  filepath.Join(repoRoot, "config.json"),
 	}
+
+	// Create directories if they don't exist
+	if err := os.MkdirAll(bc.OutputDir, 0755); err != nil {
+		panic(fmt.Sprintf("Failed to create output directory: %v", err))
+	}
+	if err := os.MkdirAll(bc.LogDir, 0755); err != nil {
+		panic(fmt.Sprintf("Failed to create log directory: %v", err))
+	}
+
 	// Load config file to get server port
 	if err := bc.loadConfig(); err != nil {
 		panic(fmt.Sprintf("Failed to load config: %v", err))
@@ -265,24 +275,37 @@ func (bc *BenchmarkConfig) StartHTTPGateway(workers int) (*exec.Cmd, error) {
 func (bc *BenchmarkConfig) StartMetricsCollector(daemonPID int) error {
 	bc.collectorStop = make(chan struct{})
 
-	collectorPath := binPath("metrics_collector")
+	// Ensure output directory exists
+	outputDir := filepath.Dir(bc.MetricsFile)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory %s: %w", outputDir, err)
+	}
+
+	// Always build metrics_collector locally to avoid glibc version mismatch
+	collectorPath := filepath.Join(os.TempDir(), "metrics_collector")
 	collectorSource := filepath.Join(repoRoot, "tests", "metrics_collector.c")
-	if _, err := os.Stat(collectorPath); os.IsNotExist(err) {
-		fmt.Println("Building metrics_collector...")
-		buildCmd := exec.Command("gcc", "-o", collectorPath, collectorSource, "-pthread")
-		if output, err := buildCmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to build metrics_collector: %w\n%s", err, output)
-		}
+
+	fmt.Println("Building metrics_collector...")
+	buildCmd := exec.Command("gcc", "-o", collectorPath, collectorSource, "-pthread")
+	if output, err := buildCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to build metrics_collector: %w\n%s", err, output)
 	}
 
 	if _, err := os.Stat(fmt.Sprintf("/proc/%d", daemonPID)); os.IsNotExist(err) {
 		return fmt.Errorf("target process %d does not exist", daemonPID)
 	}
 
+	fmt.Printf("Starting metrics collector: %s %d %s 1\n", collectorPath, daemonPID, bc.MetricsFile)
+
 	cmd := exec.Command(collectorPath,
 		strconv.Itoa(daemonPID),
 		bc.MetricsFile,
 		"1")
+
+	// Capture stdout and stderr for debugging
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start metrics collector: %w", err)
@@ -294,7 +317,9 @@ func (bc *BenchmarkConfig) StartMetricsCollector(daemonPID int) error {
 	time.Sleep(1500 * time.Millisecond)
 
 	if _, err := os.Stat(bc.MetricsFile); os.IsNotExist(err) {
-		return fmt.Errorf("metrics file not created after 1.5s")
+		fmt.Printf("Collector stdout: %s\n", stdout.String())
+		fmt.Printf("Collector stderr: %s\n", stderr.String())
+		return fmt.Errorf("metrics file not created after 1.5s: %s", bc.MetricsFile)
 	}
 
 	return nil
