@@ -324,11 +324,11 @@ curl http://localhost:8080/network/eth0?period=7200
 ### Графики сравнения
 
 <p align="center">
-  <img src="tests/comparison/charts/output/throughput_comparison.png" width="600"/>
+  <img src="tests/results/charts/output/throughput_comparison.png" width="600"/>
 </p>
 
 <p align="center">
-  <img src="tests/comparison/charts/output/latency_comparison.png" width="600"/>
+  <img src="tests/results/charts/output/latency_comparison.png" width="600"/>
 </p>
 
 ### Выводы
