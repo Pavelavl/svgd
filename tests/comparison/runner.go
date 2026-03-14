@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -70,11 +68,9 @@ func (r *BenchmarkRunner) Run(ctx context.Context, target targets.BenchmarkTarge
 func (r *BenchmarkRunner) runScenario(ctx context.Context, target targets.BenchmarkTarget, scenario benchmark.Scenario) (*benchmark.ComparisonRow, error) {
 	// Start metrics collection if PID is available (for process targets like svgd)
 	pid := target.PID()
-	var metricsFile string
 	if pid > 0 {
-		metricsFile = filepath.Join(os.TempDir(), fmt.Sprintf("benchmark-metrics-%d-%d.csv", pid, time.Now().Unix()))
-		r.metricsCollector = benchmark.NewMetricsCollector(pid, metricsFile)
-		if err := r.metricsCollector.Start(pid); err != nil {
+		r.metricsCollector = benchmark.NewMetricsCollector(pid)
+		if err := r.metricsCollector.Start(ctx); err != nil {
 			fmt.Printf("  Warning: failed to start metrics collector: %v\n", err)
 			r.metricsCollector = nil
 		}
@@ -126,10 +122,6 @@ func (r *BenchmarkRunner) runScenario(ctx context.Context, target targets.Benchm
 		metricsSummary, err = r.metricsCollector.Analyze()
 		if err != nil {
 			fmt.Printf("  Warning: failed to analyze metrics: %v\n", err)
-		}
-		// Cleanup metrics file
-		if metricsFile != "" {
-			os.Remove(metricsFile)
 		}
 		r.metricsCollector = nil
 	} else if r.dockerMetricsCollector != nil {

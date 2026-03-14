@@ -32,7 +32,8 @@ SVG_FILES = \
 # === Phony Targets ===
 .PHONY: all build build-backend clean install
 .PHONY: run run-backend generate
-.PHONY: test test-e2e test-load test-ui
+.PHONY: test test-all test-e2e test-load test-ui test-comparison
+.PHONY: report generate-report generate-charts clean-results
 .PHONY: docker-build docker-up docker-down docker-logs docker-test docker-test-ui
 .PHONY: docker-bases svgd-base collectd-base
 .PHONY: run-multi down-multi
@@ -82,11 +83,16 @@ generate:
 
 test: test-e2e test-load
 
+test-all: test-e2e test-load test-comparison
+	@echo "All tests completed"
+
 test-e2e:
 	cd tests && go test -v ./e2e/...
 
 test-load:
 	cd tests && go test -v ./load/...
+
+test-comparison: test-bench
 
 test-ui:
 	./tests/ui/run_tests.sh -v
@@ -95,18 +101,60 @@ test-deps:
 	python -m venv .venv
 	.venv/bin/pip install -r tests/ui/requirements.txt
 
+# ============================================================
+# REPORT GENERATION
+# ============================================================
+
+# Full report cycle: tests -> charts -> markdown
+report: test-all generate-charts generate-report
+	@echo "Report generated: tests/results/report.md"
+	@echo "Charts: tests/results/charts/output/"
+
+# Merge results from multiple machines
+# Usage: make merge-results SOURCES="machine-a/results machine-b/results"
+merge-results:
+	@if [ -z "$(SOURCES)" ]; then \
+		echo "Usage: make merge-results SOURCES=\"machine-a/results machine-b/results\""; \
+		exit 1; \
+	fi
+	cd tests/shared/system && go run ./cmd/merge $(SOURCES) ../../results
+
+# Generate charts (Python)
+generate-charts:
+	@if [ ! -d "tests/venv" ]; then \
+		echo "Creating virtual environment..."; \
+		python3 -m venv tests/venv; \
+		tests/venv/bin/pip install -q -r tests/requirements.txt; \
+	fi
+	tests/venv/bin/python tests/results/charts/generate.py
+
+# Generate markdown report (Go)
+generate-report:
+	cd tests/shared/system && go run ./cmd/reportgen
+
+# Clean all results
+clean-results:
+	rm -f tests/results/*.csv tests/results/report.md
+	rm -f tests/results/machines/*.json
+	rm -f tests/results/charts/output/*.png
+
+# ============================================================
+# CROSS-SYSTEM BENCHMARK (Legacy)
+# ============================================================
+
 test-bench: build-backend bench-docker-build bench-docker-up
 	@echo "=== Cross-System Benchmark (svgd vs RRDtool vs Graphite) ==="
-	cd tests/comparison && go run -tags docker . --output results.csv
+	cd tests/comparison && go run -tags docker .
 
 bench-docker-build:
 	docker build -t benchmark-rrdtool tests/comparison/docker/rrdtool/
 	docker build -t benchmark-graphite tests/comparison/docker/graphite/
 
 bench-docker-up:
+	docker rm -f benchmark-rrdtool benchmark-graphite 2>/dev/null || true
 	docker run -d --name benchmark-rrdtool -p 8083:8080 \
-		-v /opt/collectd/var/lib/collectd/rrd:/var/lib/collectd/rrd:ro benchmark-rrdtool 2>/dev/null || true
-	docker run -d --name benchmark-graphite -p 8082:80 benchmark-graphite 2>/dev/null || true
+		-v /opt/collectd/var/lib/collectd/rrd:/var/lib/collectd/rrd:ro benchmark-rrdtool
+	docker run -d --name benchmark-graphite -p 8082:80 benchmark-graphite
 
 bench-docker-down:
 	docker rm -f benchmark-rrdtool benchmark-graphite 2>/dev/null || true
@@ -114,15 +162,11 @@ bench-docker-down:
 bench-all: bench-comparison bench-charts
 
 # --- Charts ---
-bench-charts:
-	@echo "=== Generating Charts ==="
-	@pip install -q -r tests/comparison/charts/requirements.txt 2>/dev/null || true
-	python3 tests/comparison/charts/generate.py tests/comparison/results.csv --output tests/comparison/charts/output/
+bench-charts: generate-charts
+	@echo "Charts generated in tests/results/charts/output/"
 
 # --- Clean ---
-bench-clean: bench-docker-down
-	rm -f tests/comparison/results.csv
-	rm -rf tests/comparison/charts/output/
+bench-clean: bench-docker-down clean-results
 
 # ============================================================
 # DOCKER (Basic)

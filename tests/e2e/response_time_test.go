@@ -1,7 +1,6 @@
 package base
 
 import (
-	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"lsrp_test/http"
+	"svgd/tests/shared/system"
 
 	"github.com/Pavelavl/go-lsrp"
 )
@@ -464,52 +464,34 @@ func writeResultsToCSV(results []*TestResult, resultsDir string) error {
 		return nil
 	}
 
-	csvPath := filepath.Join(resultsDir, "e2e_results.csv")
-	file, err := os.Create(csvPath)
+	reporter, err := system.NewReporter("e2e")
 	if err != nil {
-		return fmt.Errorf("failed to create CSV file: %w", err)
+		return fmt.Errorf("failed to create reporter: %w", err)
 	}
-	defer file.Close()
+	defer reporter.Close()
 
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	// Write header
-	header := []string{"Protocol", "Mode", "RRDCached", "Total", "Success", "Rate", "AvgMs", "MedianMs", "MinMs", "MaxMs", "Timestamp"}
-	if err := writer.Write(header); err != nil {
-		return fmt.Errorf("failed to write CSV header: %w", err)
-	}
-
-	timestamp := time.Now().Format(time.RFC3339)
-
-	// Write data rows
 	for _, r := range results {
 		if r.TotalRequests == 0 {
 			continue
 		}
-		cached := "No"
-		if r.RRDCached {
-			cached = "Yes"
+		record := map[string]any{
+			"protocol":       r.Protocol,
+			"mode":           r.Mode,
+			"rrd_cached":     r.RRDCached,
+			"total_requests": r.TotalRequests,
+			"success_count":  r.SuccessCount,
+			"success_rate":   r.SuccessRate,
+			"avg_time_ms":    r.AvgTimeMs,
+			"median_time_ms": r.MedianTimeMs,
+			"min_time_ms":    r.MinTimeMs,
+			"max_time_ms":    r.MaxTimeMs,
 		}
-		row := []string{
-			r.Protocol,
-			r.Mode,
-			cached,
-			strconv.Itoa(r.TotalRequests),
-			strconv.Itoa(r.SuccessCount),
-			fmt.Sprintf("%.1f", r.SuccessRate),
-			strconv.FormatInt(r.AvgTimeMs, 10),
-			strconv.FormatInt(r.MedianTimeMs, 10),
-			strconv.FormatInt(r.MinTimeMs, 10),
-			strconv.FormatInt(r.MaxTimeMs, 10),
-			timestamp,
-		}
-		if err := writer.Write(row); err != nil {
-			return fmt.Errorf("failed to write CSV row: %w", err)
+		if err := reporter.Record(record); err != nil {
+			return fmt.Errorf("failed to record result: %w", err)
 		}
 	}
 
-	fmt.Printf("Results written to %s\n", csvPath)
+	fmt.Println("Results written to tests/results/e2e.csv")
 	return nil
 }
 

@@ -8,17 +8,16 @@ import (
 	"path/filepath"
 
 	"svgd/tests/shared/benchmark"
+	"svgd/tests/shared/system"
 	"svgd/tests/comparison/targets"
 )
 
 func main() {
-	outputFlag := flag.String("output", "results.csv", "Output CSV file path")
 	svgdOnly := flag.Bool("svgd-only", false, "Only benchmark svgd (skip Docker targets)")
 	flag.Parse()
 
 	fmt.Println("Cross-System Benchmark")
 	fmt.Println("=======================")
-	fmt.Printf("Output: %s\n\n", *outputFlag)
 
 	ctx := context.Background()
 	runner := NewBenchmarkRunner()
@@ -49,12 +48,42 @@ func main() {
 		runDockerTargets(ctx, runner, &allResults)
 	}
 
-	// Write results
-	if err := benchmark.WriteCSV(allResults, *outputFlag); err != nil {
-		fmt.Printf("Failed to write CSV: %v\n", err)
+	// Write results using unified reporter
+	reporter, err := system.NewReporter("comparison")
+	if err != nil {
+		fmt.Printf("Failed to create reporter: %v\n", err)
 		os.Exit(1)
 	}
+	defer reporter.Close()
 
-	fmt.Printf("\nResults written to: %s\n", *outputFlag)
-	fmt.Println("Benchmark complete!")
+	for _, row := range allResults {
+		record := map[string]any{
+			"system":            row.System,
+			"scenario":          row.Scenario,
+			"concurrency":       row.Concurrency,
+			"requests":          row.Requests,
+			"rps":               row.RPS,
+			"success_rate":      row.SuccessRate,
+			"latency_avg_ms":    row.LatencyAvgMs,
+			"latency_p50_ms":    row.LatencyP50Ms,
+			"latency_p95_ms":    row.LatencyP95Ms,
+			"latency_p99_ms":    row.LatencyP99Ms,
+			"cpu_avg_pct":       row.CPUAvgPct,
+			"cpu_max_pct":       row.CPUMaxPct,
+			"mem_avg_mb":        row.MemAvgMB,
+			"mem_max_mb":        row.MemMaxMB,
+			"io_read_mb":        row.IOReadMB,
+			"io_write_mb":       row.IOWriteMB,
+			"ctx_switch_vol_ps": row.CtxSwitchVolPS,
+			"ctx_switch_invol_ps": row.CtxSwitchInvolPS,
+			"page_faults_minor_ps": row.PageFaultsMinorPS,
+			"threads_avg":       row.ThreadsAvg,
+			"fds_avg":           row.FDsAvg,
+		}
+		if err := reporter.Record(record); err != nil {
+			fmt.Printf("Failed to record result: %v\n", err)
+		}
+	}
+
+	fmt.Println("\nBenchmark complete!")
 }

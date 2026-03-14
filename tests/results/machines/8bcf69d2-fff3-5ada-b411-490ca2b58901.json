@@ -1,0 +1,28 @@
+{
+  "machine_id": "8bcf69d2-fff3-5ada-b411-490ca2b58901",
+  "hostname": "pvl-bohkwax9x",
+  "collected_at": "2026-03-14T19:21:03.918645216Z",
+  "cpu": {
+    "model": "AMD Ryzen 7 3700U with Radeon Vega Mobile Gfx",
+    "cores": 8,
+    "threads": 8,
+    "frequency_mhz": 2614,
+    "cache_l1_kb": 0,
+    "cache_l2_kb": 0,
+    "cache_l3_kb": 512
+  },
+  "memory": {
+    "total_mb": 6862,
+    "available_mb": 1715
+  },
+  "os": {
+    "name": "Manjaro Linux",
+    "version": "",
+    "kernel": "6.18.12-1-MANJARO",
+    "architecture": "amd64"
+  },
+  "storage": {
+    "type": "ssd",
+    "mount_point": "/"
+  }
+}
