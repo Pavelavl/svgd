@@ -56,7 +56,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.25'
           cache-dependency-path: tests/go.sum
 
       - name: Setup environment
@@ -107,10 +107,10 @@ jobs:
           sleep 2
 
       - name: Run E2E tests
-        run: cd tests && go test -v ./e2e/...
+        run: cd tests/internal && go test -v ./e2e/...
 
       - name: Run Load tests
-        run: cd tests && go test -v ./load/...
+        run: cd tests/internal && go test -v ./load/...
 
   test-ui:
     needs: build
@@ -172,7 +172,7 @@ jobs:
       - name: Install Python deps
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install -r tests/ui/requirements.txt
+          .venv/bin/pip install -r tests/internal/ui/requirements.txt
 
       - name: Start servers
         run: |
