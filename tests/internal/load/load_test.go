@@ -1,4 +1,4 @@
-package benchmarks
+package load
 
 import (
 	"context"
@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"lsrp_test/http"
-	"svgd/tests/shared/benchmark"
-	"svgd/tests/shared/system"
+	"tests/pkg/benchmark"
+	"tests/pkg/http"
+	"tests/pkg/system"
 
 	"github.com/Pavelavl/go-lsrp"
 )
@@ -361,61 +361,6 @@ func (bc *BenchmarkConfig) AnalyzeMetrics() (*benchmark.MetricsSummary, error) {
 	return bc.metricsCollector.Analyze()
 }
 
-func printResults(testName string, br *benchmark.BenchmarkResult, ms *benchmark.MetricsSummary) {
-	fmt.Println("\n" + strings.Repeat("=", 70))
-	fmt.Printf("BENCHMARK RESULTS: %s\n", testName)
-	fmt.Println(strings.Repeat("=", 70))
-
-	fmt.Println("\n📊 Request Statistics:")
-	fmt.Printf("  Total Requests:    %d\n", br.TotalRequests)
-	fmt.Printf("  Successful:        %d (%.2f%%)\n", br.SuccessCount, br.SuccessRate)
-	fmt.Printf("  Failed:            %d\n", br.FailCount)
-	fmt.Printf("  Duration:          %v\n", br.Duration)
-	fmt.Printf("  Throughput:        %.2f req/s\n", br.ThroughputRPS)
-
-	fmt.Println("\n⏱️  Latency Statistics:")
-	fmt.Printf("  Average:           %v\n", br.AvgLatency)
-	fmt.Printf("  Median:            %v\n", br.MedianLatency)
-	fmt.Printf("  Min:               %v\n", br.MinLatency)
-	fmt.Printf("  Max:               %v\n", br.MaxLatency)
-	fmt.Printf("  P95:               %v\n", br.P95Latency)
-	fmt.Printf("  P99:               %v\n", br.P99Latency)
-
-	if ms != nil {
-		fmt.Println("\n💻 CPU Statistics:")
-		fmt.Printf("  Average:           %.2f%%\n", ms.CPUAvg)
-		fmt.Printf("  Median:            %.2f%%\n", ms.CPUMedian)
-		fmt.Printf("  Max:               %.2f%%\n", ms.CPUMax)
-
-		fmt.Println("\n🧠 Memory Statistics:")
-		fmt.Printf("  Average:           %.2f MB\n", ms.MemAvgMB)
-		fmt.Printf("  Median:            %.2f MB\n", ms.MemMedianMB)
-		fmt.Printf("  Max:               %.2f MB\n", ms.MemMaxMB)
-
-		fmt.Println("\n💾 I/O Statistics:")
-		fmt.Printf("  Read:              %.2f MB\n", ms.IOReadMB)
-		fmt.Printf("  Write:             %.2f MB\n", ms.IOWriteMB)
-		fmt.Printf("  Read Ops/s:        %.2f\n", ms.IOReadOpsPS)
-		fmt.Printf("  Write Ops/s:       %.2f\n", ms.IOWriteOpsPS)
-
-		fmt.Println("\n🔄 Context Switches:")
-		fmt.Printf("  Voluntary/s:       %.2f\n", ms.CtxSwitchVoluntaryPS)
-		fmt.Printf("  Involuntary/s:     %.2f\n", ms.CtxSwitchInvoluntaryPS)
-
-		fmt.Println("\n📄 Page Faults:")
-		fmt.Printf("  Minor/s:           %.2f\n", ms.PageFaultsMinorPS)
-		fmt.Printf("  Major/s:           %.2f\n", ms.PageFaultsMajorPS)
-
-		fmt.Println("\n🔧 Process Statistics:")
-		fmt.Printf("  Threads (avg):     %.1f\n", ms.ThreadsAvg)
-		fmt.Printf("  Threads (max):     %d\n", ms.ThreadsMax)
-		fmt.Printf("  FDs (avg):         %.1f\n", ms.FDsAvg)
-		fmt.Printf("  FDs (max):         %d\n", ms.FDsMax)
-	}
-
-	fmt.Println(strings.Repeat("=", 70))
-}
-
 type proto string
 
 const (
@@ -493,7 +438,7 @@ func printBenchmarkComparisonTable(rows []*ComparisonRow) {
 	fmt.Println(strings.Repeat("=", 150))
 }
 
-func writeBenchmarkResultsToCSV(rows []*ComparisonRow, resultsDir string) error {
+func writeBenchmarkResults(rows []*ComparisonRow) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -755,7 +700,6 @@ func Test_BenchmarkDirectVsCached(t *testing.T) {
 			}
 
 			result.TestName = tt.name
-			// printResults(result.TestName, result, metrics)
 
 			row := &ComparisonRow{
 				TestName:      tt.name,
@@ -800,8 +744,7 @@ func Test_BenchmarkDirectVsCached(t *testing.T) {
 
 	printBenchmarkComparisonTable(comparisonRows)
 
-	// Write results to CSV
-	if err := writeBenchmarkResultsToCSV(comparisonRows, filepath.Join(repoRoot, "tests", "load", "results")); err != nil {
+	if err := writeBenchmarkResults(comparisonRows); err != nil {
 		fmt.Printf("Warning: failed to write results to CSV: %v\n", err)
 	}
 }

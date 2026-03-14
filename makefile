@@ -87,19 +87,22 @@ test-all: test-e2e test-load test-comparison
 	@echo "All tests completed"
 
 test-e2e:
-	cd tests && go test -v ./e2e/...
+	cd tests && go test -v ./internal/e2e/...
 
 test-load:
-	cd tests && go test -v ./load/...
+	cd tests && go test -v ./internal/load/...
 
 test-comparison: test-bench
 
 test-ui:
-	./tests/ui/run_tests.sh -v
+	./tests/internal/ui/run_tests.sh -v
 
 test-deps:
-	python -m venv .venv
-	.venv/bin/pip install -r tests/ui/requirements.txt
+	@if [ ! -d "tests/venv" ]; then \
+		echo "Creating virtual environment..."; \
+		python3 -m venv tests/venv; \
+		tests/venv/bin/pip install -q -r tests/requirements.txt; \
+	fi
 
 # ============================================================
 # REPORT GENERATION
@@ -117,7 +120,7 @@ merge-results:
 		echo "Usage: make merge-results SOURCES=\"machine-a/results machine-b/results\""; \
 		exit 1; \
 	fi
-	cd tests/shared/system && go run ./cmd/merge $(SOURCES) ../../results
+	cd tests/pkg/system && go run ./cmd/merge $(SOURCES) ../../results
 
 # Generate charts (Python)
 generate-charts:
@@ -130,7 +133,7 @@ generate-charts:
 
 # Generate markdown report (Go)
 generate-report:
-	cd tests/shared/system && go run ./cmd/reportgen
+	cd tests/pkg/system && go run ./cmd/reportgen
 
 # Clean all results
 clean-results:
@@ -144,11 +147,11 @@ clean-results:
 
 test-bench: build-backend bench-docker-build bench-docker-up
 	@echo "=== Cross-System Benchmark (svgd vs RRDtool vs Graphite) ==="
-	cd tests/comparison && go run -tags docker .
+	cd tests/internal/comparison && go run -tags docker .
 
 bench-docker-build:
-	docker build -t benchmark-rrdtool tests/comparison/docker/rrdtool/
-	docker build -t benchmark-graphite tests/comparison/docker/graphite/
+	docker build -t benchmark-rrdtool tests/internal/comparison/docker/rrdtool/
+	docker build -t benchmark-graphite tests/internal/comparison/docker/graphite/
 
 bench-docker-up:
 	docker rm -f benchmark-rrdtool benchmark-graphite 2>/dev/null || true

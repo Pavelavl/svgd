@@ -6,15 +6,15 @@ import (
 	"sync"
 	"time"
 
-	"svgd/tests/shared/benchmark"
-	"svgd/tests/comparison/targets"
+	"tests/internal/comparison/targets"
+	"tests/pkg/benchmark"
 )
 
 // BenchmarkRunner executes benchmarks against targets
 type BenchmarkRunner struct {
-	scenarios           []benchmark.Scenario
-	warmup              int
-	metricsCollector    *benchmark.MetricsCollector
+	scenarios              []benchmark.Scenario
+	warmup                 int
+	metricsCollector       *benchmark.MetricsCollector
 	dockerMetricsCollector *benchmark.DockerMetricsCollector
 }
 

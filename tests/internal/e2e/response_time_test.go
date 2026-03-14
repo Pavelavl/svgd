@@ -1,4 +1,4 @@
-package base
+package e2e
 
 import (
 	"encoding/json"
@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	"lsrp_test/http"
-	"svgd/tests/shared/system"
+	"tests/pkg/http"
+	"tests/pkg/system"
 
 	"github.com/Pavelavl/go-lsrp"
 )
