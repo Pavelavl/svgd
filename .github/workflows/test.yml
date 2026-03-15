@@ -108,9 +108,13 @@ jobs:
 
       - name: Run E2E tests
         run: cd tests/internal && go test -v ./e2e/...
+        env:
+          REPO_ROOT: ${{ github.workspace }}
 
       - name: Run Load tests
         run: cd tests/internal && go test -v ./load/...
+        env:
+          REPO_ROOT: ${{ github.workspace }}
 
   test-ui:
     needs: build
