@@ -3,7 +3,7 @@
 		"tcp_port": 8081,
 		"protocol": "lsrp",
 		"allowed_ips": "127.0.0.1",
-		"rrdcached_addr": "",
+		"rrdcached_addr": "unix:/var/run/rrdcached.sock",
 		"thread_pool_size": 4,
 		"cache_ttl_seconds": 5,
 		"verbose": 0

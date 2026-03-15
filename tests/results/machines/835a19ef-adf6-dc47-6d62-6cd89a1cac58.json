@@ -1,0 +1,28 @@
+{
+  "machine_id": "835a19ef-adf6-dc47-6d62-6cd89a1cac58",
+  "hostname": "megapc",
+  "collected_at": "2026-03-15T14:34:31.23735143Z",
+  "cpu": {
+    "model": "Intel(R) Core(TM) i7-14700KF",
+    "cores": 28,
+    "threads": 28,
+    "frequency_mhz": 3417,
+    "cache_l1_kb": 0,
+    "cache_l2_kb": 0,
+    "cache_l3_kb": 33792
+  },
+  "memory": {
+    "total_mb": 15905,
+    "available_mb": 13797
+  },
+  "os": {
+    "name": "Arch Linux",
+    "version": "",
+    "kernel": "6.6.87.2-microsoft-standard-WSL2",
+    "architecture": "amd64"
+  },
+  "storage": {
+    "type": "hdd",
+    "mount_point": "/"
+  }
+}

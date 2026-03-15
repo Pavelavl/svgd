@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 
 	"tests/internal/comparison/targets"
-	"tests/pkg/benchmark"
-	"tests/pkg/system"
+	"tests/shared/benchmark"
+	"tests/shared/system"
 )
 
 func main() {
@@ -19,20 +19,28 @@ func main() {
 	fmt.Println("Cross-System Benchmark")
 	fmt.Println("=======================")
 
+	// Читаем корневую директорию из переменной среды
+	repoRoot := os.Getenv("REPO_ROOT")
+	if repoRoot == "" {
+		fmt.Println("Error: REPO_ROOT environment variable is not set")
+		os.Exit(1)
+	}
+
+	// Приводим путь к абсолютному, чтобы избежать проблем с относительными путями
+	absRepoRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		fmt.Printf("Error resolving REPO_ROOT path: %v\n", err)
+		os.Exit(1)
+	}
+
 	ctx := context.Background()
 	runner := NewBenchmarkRunner()
 	var allResults []*benchmark.ComparisonRow
 
-	// Get repo root (3 levels up from this file: comparison -> tests -> repo_root)
-	repoRoot := filepath.Dir(filepath.Dir(".."))
-	if abs, err := filepath.Abs("."); err == nil {
-		repoRoot = filepath.Dir(filepath.Dir(abs))
-	}
-
-	// Benchmark svgd
+	// Используем absRepoRoot вместо вычисляемого пути
 	svgdTarget := targets.NewSVGdTarget(
-		filepath.Join(repoRoot, "bin", "svgd"),
-		filepath.Join(repoRoot, "config.json"),
+		filepath.Join(absRepoRoot, "bin", "svgd"),
+		filepath.Join(absRepoRoot, "config.json"),
 		8081, // Port from config.json
 		"lsrp",
 	)

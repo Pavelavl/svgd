@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 
-	"tests/pkg/benchmark"
+	"tests/shared/benchmark"
 )
 
 func runDockerTargets(ctx context.Context, runner *BenchmarkRunner, allResults *[]*benchmark.ComparisonRow) {

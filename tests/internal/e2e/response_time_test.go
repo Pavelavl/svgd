@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"tests/pkg/http"
-	"tests/pkg/system"
+	"tests/shared/http"
+	"tests/shared/system"
 
 	"github.com/Pavelavl/go-lsrp"
 )
@@ -24,10 +23,18 @@ var tc testCase
 var repoRoot string
 
 func init() {
-	// Get repository root (3 levels up from this file)
-	// tests/e2e/response_time_test.go -> tests/e2e -> tests -> svgd (repo root)
-	_, filename, _, _ := runtime.Caller(0)
-	repoRoot = filepath.Dir(filepath.Dir(filepath.Dir(filename)))
+	repoRoot = os.Getenv("REPO_ROOT")
+	if repoRoot == "" {
+		fmt.Println("Error: REPO_ROOT environment variable is not set")
+		os.Exit(1)
+	}
+
+	newRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		fmt.Printf("Error resolving REPO_ROOT path: %v\n", err)
+		os.Exit(1)
+	}
+	repoRoot = newRoot
 }
 
 // binPath returns absolute path to binary
@@ -42,9 +49,8 @@ func TestMain(m *testing.M) {
 	tc.endpoint = "endpoint=cpu&period=3600" // LSRP format
 	tc.httpEndpoint = "cpu"                  // HTTP format
 	tc.rrdFile = "/opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd"
-	tc.outputDir = filepath.Join(repoRoot, "tests", "e2e", "temp_svgs")
-	tc.logDir = filepath.Join(repoRoot, "tests", "e2e", "logs")
-	tc.resultsDir = filepath.Join(repoRoot, "tests", "e2e", "results")
+	tc.outputDir = filepath.Join(repoRoot, "tests", "internal", "e2e", "temp_svgs")
+	tc.logDir = filepath.Join(repoRoot, "tests", "internal", "e2e", "logs")
 	tc.configFile = filepath.Join(repoRoot, "config.json")
 
 	// Create directories
@@ -54,10 +60,6 @@ func TestMain(m *testing.M) {
 	}
 	if err := os.MkdirAll(tc.logDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create directory %s: %v\n", tc.logDir, err)
-		os.Exit(1)
-	}
-	if err := os.MkdirAll(tc.resultsDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create directory %s: %v\n", tc.resultsDir, err)
 		os.Exit(1)
 	}
 
@@ -141,7 +143,7 @@ func Test_HTTPVsLSRP(t *testing.T) {
 	printComparisonTable(allResults)
 
 	// Write results to CSV
-	if err := writeResultsToCSV(allResults, tc.resultsDir); err != nil {
+	if err := writeResults(allResults); err != nil {
 		t.Logf("Warning: failed to write results to CSV: %v", err)
 	}
 }
@@ -154,7 +156,6 @@ type testCase struct {
 	rrdFile      string
 	outputDir    string
 	logDir       string
-	resultsDir   string
 	configFile   string
 	config       config
 }
@@ -459,7 +460,7 @@ func printComparisonTable(results []*TestResult) {
 	fmt.Println(strings.Repeat("=", 140))
 }
 
-func writeResultsToCSV(results []*TestResult, resultsDir string) error {
+func writeResults(results []*TestResult) error {
 	if len(results) == 0 {
 		return nil
 	}

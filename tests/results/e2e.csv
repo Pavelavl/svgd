@@ -39,3 +39,11 @@ machine_id,timestamp,test_name,avg_time_ms,max_time_ms,median_time_ms,min_time_m
 8bcf69d2-fff3-5ada-b411-490ca2b58901,2026-03-14T19:21:03Z,e2e,294,574,296,13,parallel,lsrp,true,100,100,100
 8bcf69d2-fff3-5ada-b411-490ca2b58901,2026-03-14T19:21:03Z,e2e,6,10,6,5,sync,lsrp,false,100,100,100
 8bcf69d2-fff3-5ada-b411-490ca2b58901,2026-03-14T19:21:03Z,e2e,305,589,308,12,parallel,lsrp,false,100,100,100
+835a19ef-adf6-dc47-6d62-6cd89a1cac58,2026-03-15T11:56:27Z,e2e,11,18,11,10,sync,http,true,100,100,100
+835a19ef-adf6-dc47-6d62-6cd89a1cac58,2026-03-15T11:56:27Z,e2e,572,1114,572,30,parallel,http,true,100,100,100
+835a19ef-adf6-dc47-6d62-6cd89a1cac58,2026-03-15T11:56:27Z,e2e,2,5,2,2,sync,http,false,100,100,100
+835a19ef-adf6-dc47-6d62-6cd89a1cac58,2026-03-15T11:56:27Z,e2e,92,179,93,8,parallel,http,false,100,100,100
+835a19ef-adf6-dc47-6d62-6cd89a1cac58,2026-03-15T11:56:27Z,e2e,10,14,10,10,sync,lsrp,true,100,100,100
+835a19ef-adf6-dc47-6d62-6cd89a1cac58,2026-03-15T11:56:27Z,e2e,535,1058,535,15,parallel,lsrp,true,100,100,100
+835a19ef-adf6-dc47-6d62-6cd89a1cac58,2026-03-15T11:56:27Z,e2e,1,4,2,1,sync,lsrp,false,100,100,100
+835a19ef-adf6-dc47-6d62-6cd89a1cac58,2026-03-15T11:56:27Z,e2e,90,173,91,5,parallel,lsrp,false,100,100,100

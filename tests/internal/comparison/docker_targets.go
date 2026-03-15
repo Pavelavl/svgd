@@ -7,8 +7,8 @@ import (
 	"context"
 	"fmt"
 
-	"svgd/tests/comparison/targets"
-	"svgd/tests/pkg/benchmark"
+	"tests/internal/comparison/targets"
+	"tests/shared/benchmark"
 )
 
 func runDockerTargets(ctx context.Context, runner *BenchmarkRunner, allResults *[]*benchmark.ComparisonRow) {

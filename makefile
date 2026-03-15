@@ -2,6 +2,8 @@
 # SVGD Makefile
 # ============================================================
 
+REPO_ROOT := $(shell pwd)
+
 # === Configuration ===
 CC       = gcc
 CFLAGS   = -Ilsrp -Wall -Wextra -O2 -pthread
@@ -87,10 +89,10 @@ test-all: test-e2e test-load test-comparison
 	@echo "All tests completed"
 
 test-e2e:
-	cd tests && go test -v ./internal/e2e/...
+	REPO_ROOT="$(REPO_ROOT)" sh -c 'cd tests && go test -v ./internal/e2e/...'
 
 test-load:
-	cd tests && go test -v ./internal/load/...
+	REPO_ROOT="$(REPO_ROOT)" sh -c 'cd tests && go test -v ./internal/load/...'
 
 test-comparison: test-bench
 
@@ -120,7 +122,7 @@ merge-results:
 		echo "Usage: make merge-results SOURCES=\"machine-a/results machine-b/results\""; \
 		exit 1; \
 	fi
-	cd tests/pkg/system && go run ./cmd/merge $(SOURCES) ../../results
+	cd tests/shared/system && go run ./cmd/merge $(SOURCES) ../../results
 
 # Generate charts (Python)
 generate-charts:
@@ -133,7 +135,7 @@ generate-charts:
 
 # Generate markdown report (Go)
 generate-report:
-	cd tests/pkg/system && go run ./cmd/reportgen
+	cd tests/shared/system && go run ./cmd/reportgen
 
 # Clean all results
 clean-results:
@@ -142,12 +144,15 @@ clean-results:
 	rm -f tests/results/charts/output/*.png
 
 # ============================================================
-# CROSS-SYSTEM BENCHMARK (Legacy)
+# CROSS-SYSTEM BENCHMARK
 # ============================================================
+
+test-bench-svgd:
+	REPO_ROOT="$(REPO_ROOT)" go run -C tests/internal/comparison .
 
 test-bench: build-backend bench-docker-build bench-docker-up
 	@echo "=== Cross-System Benchmark (svgd vs RRDtool vs Graphite) ==="
-	cd tests/internal/comparison && go run -tags docker .
+	REPO_ROOT="$(REPO_ROOT)" cd tests/internal/comparison && go run -tags docker .
 
 bench-docker-build:
 	docker build -t benchmark-rrdtool tests/internal/comparison/docker/rrdtool/

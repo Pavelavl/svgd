@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"tests/internal/comparison/targets"
-	"tests/pkg/benchmark"
+	"tests/shared/benchmark"
 )
 
 // BenchmarkRunner executes benchmarks against targets

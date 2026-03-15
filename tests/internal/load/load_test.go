@@ -7,16 +7,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"tests/pkg/benchmark"
-	"tests/pkg/http"
-	"tests/pkg/system"
+	"tests/shared/benchmark"
+	"tests/shared/http"
+	"tests/shared/system"
 
 	"github.com/Pavelavl/go-lsrp"
 )
@@ -33,10 +32,18 @@ const (
 var repoRoot string
 
 func init() {
-	// Get repository root (3 levels up from this file)
-	// tests/load/load_test.go -> tests/load -> tests -> svgd (repo root)
-	_, filename, _, _ := runtime.Caller(0)
-	repoRoot = filepath.Dir(filepath.Dir(filepath.Dir(filename)))
+	repoRoot = os.Getenv("REPO_ROOT")
+	if repoRoot == "" {
+		fmt.Println("Error: REPO_ROOT environment variable is not set")
+		os.Exit(1)
+	}
+
+	newRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		fmt.Printf("Error resolving REPO_ROOT path: %v\n", err)
+		os.Exit(1)
+	}
+	repoRoot = newRoot
 }
 
 // binPath returns absolute path to binary
@@ -49,7 +56,6 @@ type BenchmarkConfig struct {
 	Concurrency      int
 	Duration         time.Duration
 	RRDFile          string
-	OutputDir        string
 	LogDir           string
 	ConfigFile       string
 	UseRRDCached     bool
@@ -95,15 +101,10 @@ func NewBenchmarkConfig() *BenchmarkConfig {
 		Concurrency: DefaultConcurrency,
 		Duration:    DefaultDuration,
 		RRDFile:     "/opt/collectd/var/lib/collectd/rrd/localhost/cpu-total/percent-active.rrd",
-		OutputDir:   filepath.Join(repoRoot, "tests", "load", "results"),
-		LogDir:      filepath.Join(repoRoot, "tests", "load", "logs"),
+		LogDir:      filepath.Join(repoRoot, "tests", "internal", "load", "logs"),
 		ConfigFile:  filepath.Join(repoRoot, "config.json"),
 	}
 
-	// Create directories if they don't exist
-	if err := os.MkdirAll(bc.OutputDir, 0755); err != nil {
-		panic(fmt.Sprintf("Failed to create output directory: %v", err))
-	}
 	if err := os.MkdirAll(bc.LogDir, 0755); err != nil {
 		panic(fmt.Sprintf("Failed to create log directory: %v", err))
 	}
@@ -533,8 +534,7 @@ func createTestConfig(baseConfigPath, protocol string, useCache bool, port int) 
 }
 
 func Test_BenchmarkDirectVsCached(t *testing.T) {
-	os.MkdirAll(filepath.Join(repoRoot, "tests", "load", "results"), 0755)
-	os.MkdirAll(filepath.Join(repoRoot, "tests", "load", "logs"), 0755)
+	os.MkdirAll(filepath.Join(repoRoot, "tests", "internal", "load", "logs"), 0755)
 
 	tests := []struct {
 		name             string
