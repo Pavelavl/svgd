@@ -8,9 +8,11 @@ __pycache__
 .infra/rrd-data
 datasources.json
 config.json
+settings.local.json
 
 *.md
 docs/
+PRESENTATION.*
 
 # Benchmark output files
 tests/benchmark/output/*.csv

@@ -1,6 +1,10 @@
 services:
+  # Set IMAGE_SOURCE env var to use GHCR images instead of local build
+  # Example: IMAGE_SOURCE=ghcr.io/owner/svgd docker compose up
+
   # Backend - LSRP server (svgd)
   backend:
+    image: ${IMAGE_SOURCE:-svgd}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -22,6 +26,7 @@ services:
 
   # Gateway - HTTP server (svgd-gate)
   gate:
+    image: ${IMAGE_SOURCE:-svgd}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile

@@ -19,6 +19,12 @@ GATE_SRC   = gate/*.c $(LSRP_DIR)/lsrp_client.c
 GATE_BIN   = svgd-gate
 CLIENT_BIN = $(LSRP_DIR)/bin/lsrp
 
+# === GitHub Container Registry ===
+REPO_OWNER := $(shell git config --get user.name 2>/dev/null || echo "your-username")
+IMAGE_NAME ?= ghcr.io/$(REPO_OWNER)/svgd
+IMAGE_TAG ?= latest
+FULL_IMAGE ?= $(IMAGE_NAME):$(IMAGE_TAG)
+
 PORT   := $(shell jq -r '.server.tcp_port // "8081"' config.json)
 PERIOD = 3600
 
@@ -42,6 +48,7 @@ SVG_FILES = \
 .PHONY: bench-svgd-only bench-comparison bench-charts bench-all bench-quick bench-clean
 .PHONY: bench-docker-build bench-docker-up bench-docker-down
 .PHONY: demo demo-down submodule
+.PHONY: docker-login docker-push docker-pull run-from-ghcr
 
 # ============================================================
 # BUILD
@@ -215,3 +222,26 @@ run-multi: docker-bases
 
 down-multi:
 	docker-compose -f docker-compose.multi.yml down
+
+# ============================================================
+# GITHUB CONTAINER REGISTRY
+# ============================================================
+
+docker-login:
+	@echo "Login to GHCR with: docker login ghcr.io -u $(REPO_OWNER)"
+
+docker-push: docker-build
+	@echo "Pushing $(FULL_IMAGE)..."
+	docker tag svgd:latest $(FULL_IMAGE)
+	docker push $(FULL_IMAGE)
+
+docker-push-latest:
+	$(MAKE) docker-push IMAGE_TAG=latest
+
+docker-pull:
+	@echo "Pulling $(FULL_IMAGE)..."
+	docker pull $(FULL_IMAGE)
+
+run-from-ghcr:
+	@echo "Running services from $(FULL_IMAGE)..."
+	IMAGE_SOURCE=$(IMAGE_NAME) docker compose up -d
