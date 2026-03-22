@@ -537,14 +537,28 @@ static void handle_options(int client_sock) {
     send(client_sock, response, strlen(response), MSG_NOSIGNAL);
 }
 
+// Check if path has a file extension (likely a static file)
+static int has_file_extension(const char *path) {
+    const char *last_slash = strrchr(path, '/');
+    const char *last_dot = strrchr(path, '.');
+    // Has extension and dot comes after last slash
+    return last_dot && last_dot > last_slash;
+}
+
 // Check if request is for static file
 static int is_static_request(const char *path) {
-    if (strcmp(path, "/") == 0 ||
-        strcmp(path, "/index.html") == 0 ||
-        strcmp(path, "/script.js") == 0) {
+    // API paths without extensions
+    if (strcmp(path, "/_datasources") == 0 ||
+        strncmp(path, "/_datasources/", 14) == 0 ||
+        strncmp(path, "/_config/", 9) == 0) {
+        return 0;
+    }
+    // Static files: root, or has file extension
+    if (strcmp(path, "/") == 0 || strcmp(path, "/index.html") == 0) {
         return 1;
     }
-    return 0;
+    // Files with extensions (.html, .js, .css, .map, .ico, .png, etc.) are static
+    return has_file_extension(path);
 }
 
 // Get MIME type based on file extension

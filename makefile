@@ -5,7 +5,17 @@
 REPO_ROOT := $(shell pwd)
 
 # === Configuration ===
-CC       = gcc
+# Архитектура: можно переопределить через make ARCH=arm64 build
+ARCH ?= $(shell uname -m)
+
+ifeq ($(ARCH),aarch64)
+    CC = aarch64-linux-gnu-gcc
+else ifeq ($(ARCH),arm64)
+    CC = aarch64-linux-gnu-gcc
+else
+    CC = gcc
+endif
+
 CFLAGS   = -Ilsrp -Wall -Wextra -O2 -pthread
 LIBS     = -lrrd -lduktape
 
@@ -49,6 +59,7 @@ SVG_FILES = \
 .PHONY: bench-docker-build bench-docker-up bench-docker-down
 .PHONY: demo demo-down submodule
 .PHONY: docker-login docker-push docker-pull run-from-ghcr
+.PHONY: deploy deploy-local deploy-setup
 
 # ============================================================
 # BUILD
@@ -245,3 +256,18 @@ docker-pull:
 run-from-ghcr:
 	@echo "Running services from $(FULL_IMAGE)..."
 	IMAGE_SOURCE=$(IMAGE_NAME) docker compose up -d
+
+# ============================================================
+# DEPLOY
+# ============================================================
+
+# Хост для деплоя (можно переопределить: make deploy DEPLOY_HOST=user@host)
+DEPLOY_HOST ?= pvl@192.168.1.208
+
+deploy: build
+	@echo "=== Деплой на $(DEPLOY_HOST) ==="
+	./deploy.sh $(DEPLOY_HOST)
+
+deploy-setup:
+	@echo "Запустите этот скрипт на сервере:"
+	@echo "curl -sL https://raw.githubusercontent.com/Pavelavl/svgd/master/scripts/setup-server.sh | bash -s"

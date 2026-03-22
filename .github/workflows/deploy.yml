@@ -1,0 +1,155 @@
+name: Deploy
+
+on:
+  workflow_dispatch:  # Ручной запуск
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'gate/**'
+      - 'lsrp/**'
+      - 'config.json'
+      - 'Makefile'
+      - '.github/workflows/deploy.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-22.04
+    container: debian:trixie
+    steps:
+      - name: Install git and build tools
+        run: |
+          apt-get update
+          apt-get install -y git gcc make jq file
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install ARM64 cross-compiler
+        run: |
+          dpkg --add-architecture arm64
+          apt-get update
+          apt-get install -y gcc-aarch64-linux-gnu librrd-dev:arm64 duktape-dev:arm64
+
+      - name: Build for ARM64
+        run: make ARCH=arm64 build
+
+      - name: Verify binaries
+        run: file bin/svgd bin/svgd-gate
+
+      - name: Create deployment package
+        run: |
+          mkdir -p deploy/package
+          cp bin/svgd deploy/package/
+          cp bin/svgd-gate deploy/package/
+          cp -r gate/static deploy/package/
+          cp -r src/scripts deploy/package/
+          cp config.json deploy/package/
+          cd deploy && tar czf svgd-deploy.tar.gz package/
+
+      - name: Copy to root for transfer
+        run: cp deploy/svgd-deploy.tar.gz svgd-deploy.tar.gz
+
+      - name: Transfer file to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          passphrase: ${{ secrets.DEPLOY_SSH_PASSPHRASE }}
+          source: "svgd-deploy.tar.gz"
+          target: "/tmp/"
+          overwrite: true
+
+      - name: Deploy on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          passphrase: ${{ secrets.DEPLOY_SSH_PASSPHRASE }}
+          shell: bash
+          script_stop: true
+          script: |
+            # Остановка сервисов
+            sudo systemctl stop svgd svgd-gate || true
+
+            # Создание бэкапа
+            sudo mkdir -p /opt/svgd/backup
+            sudo cp -r /opt/svgd/bin /opt/svgd/backup/ 2>/dev/null || true
+            sudo cp /opt/svgd/config.json /opt/svgd/backup/ 2>/dev/null || true
+
+            # Перемещение и распаковка
+            sudo mv /tmp/svgd-deploy.tar.gz /opt/svgd/
+            cd /opt/svgd && sudo tar xzf svgd-deploy.tar.gz
+            sudo rm svgd-deploy.tar.gz
+
+            # Установка файлов
+            sudo mkdir -p /opt/svgd/bin
+            sudo mkdir -p /opt/svgd/scripts
+            sudo mkdir -p /opt/svgd/gate/static
+            sudo mkdir -p /opt/svgd/rrd
+
+            sudo cp package/svgd /opt/svgd/bin/
+            sudo cp package/svgd-gate /opt/svgd/bin/
+            sudo rm -rf /opt/svgd/gate/static/*
+            sudo cp -r package/static/* /opt/svgd/gate/static/
+            sudo rm -rf /opt/svgd/scripts
+            sudo cp -r package/scripts /opt/svgd/
+            sudo cp package/config.json /opt/svgd/
+
+            # Права доступа
+            sudo chmod +x /opt/svgd/bin/svgd /opt/svgd/bin/svgd-gate
+
+            # systemd сервисы
+            cat | sudo tee /etc/systemd/system/svgd.service > /dev/null <<'EOF'
+            [Unit]
+            Description=SVGD Backend
+            After=network.target
+
+            [Service]
+            Type=simple
+            User=svgd
+            WorkingDirectory=/opt/svgd
+            ExecStart=/opt/svgd/bin/svgd /opt/svgd/config.json
+            Restart=always
+            RestartSec=5
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            cat | sudo tee /etc/systemd/system/svgd-gate.service > /dev/null <<'EOF'
+            [Unit]
+            Description=SVGD HTTP Gateway
+            After=network.target svgd.service
+
+            [Service]
+            Type=simple
+            User=svgd
+            WorkingDirectory=/opt/svgd
+            ExecStart=/opt/svgd/bin/svgd-gate 127.0.0.1 8081 8080 /opt/svgd/gate/static
+            Restart=always
+            RestartSec=5
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            # Создание пользователя если не существует
+            sudo useradd -r -s /bin/false svgd 2>/dev/null || true
+            sudo chown -R svgd:svgd /opt/svgd
+
+            # Перезагрузка и запуск
+            sudo systemctl daemon-reload
+            sudo systemctl enable svgd svgd-gate
+            sudo systemctl start svgd svgd-gate
+
+            # Проверка статуса
+            sleep 2
+            sudo systemctl status svgd --no-pager || true
+            sudo systemctl status svgd-gate --no-pager || true

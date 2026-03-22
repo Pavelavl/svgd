@@ -1,6 +1,6 @@
 // ===== Configuration =====
 const config = {
-    apiBaseUrl: 'http://localhost:8080',
+    apiBaseUrl: '',
     refreshInterval: 10000,
     panels: [],
     customTimeRange: null,
