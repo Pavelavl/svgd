@@ -106,11 +106,10 @@ jobs:
             sudo chmod +x /opt/svgd/bin/svgd /opt/svgd/bin/svgd-gate
 
             # systemd сервисы
-            cat | sudo tee /etc/systemd/system/svgd.service > /dev/null <<'EOF'
+            sudo tee /etc/systemd/system/svgd.service > /dev/null << 'EOF'
             [Unit]
             Description=SVGD Backend
             After=network.target
-
             [Service]
             Type=simple
             User=svgd
@@ -118,16 +117,14 @@ jobs:
             ExecStart=/opt/svgd/bin/svgd /opt/svgd/config.json
             Restart=always
             RestartSec=5
-
             [Install]
             WantedBy=multi-user.target
             EOF
 
-            cat | sudo tee /etc/systemd/system/svgd-gate.service > /dev/null <<'EOF'
+            sudo tee /etc/systemd/system/svgd-gate.service > /dev/null << 'EOF'
             [Unit]
             Description=SVGD HTTP Gateway
             After=network.target svgd.service
-
             [Service]
             Type=simple
             User=svgd
@@ -135,7 +132,6 @@ jobs:
             ExecStart=/opt/svgd/bin/svgd-gate 127.0.0.1 8081 8080 /opt/svgd/gate/static
             Restart=always
             RestartSec=5
-
             [Install]
             WantedBy=multi-user.target
             EOF

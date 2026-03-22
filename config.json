@@ -12,7 +12,7 @@
 		"base_path": "/opt/collectd/var/lib/collectd/rrd/localhost"
 	},
 	"js": {
-		"script_path": "./src/scripts/generate_svg.js"
+		"script_path": "./scripts/generate_svg.js"
 	},
 	"metrics": [
 		{
@@ -22,7 +22,8 @@
 			"title": "CPU Utilization",
 			"y_label": "Usage (%)",
 			"is_percentage": true,
-			"value_format": "%.1f"
+			"value_format": "%.1f",
+			"panel_type": "stat"
 		},
 		{
 			"endpoint": "cpu/process",
@@ -33,7 +34,8 @@
 			"is_percentage": false,
 			"value_format": "%.2f",
 			"param_name": "process_name",
-			"transform_type": "sum"
+			"transform_type": "sum",
+			"panel_type": "stat"
 		},
 		{
 			"endpoint": "ram",
@@ -42,7 +44,8 @@
 			"title": "RAM Utilization",
 			"y_label": "Usage (%)",
 			"is_percentage": true,
-			"value_format": "%.1f"
+			"value_format": "%.1f",
+			"panel_type": "stat"
 		},
 		{
 			"endpoint": "ram/process",
@@ -54,7 +57,8 @@
 			"value_format": "%.1f",
 			"param_name": "process_name",
 			"transform_type": "divide",
-			"transform_divisor": 1048576
+			"transform_divisor": 1048576,
+			"panel_type": "stat"
 		},
 		{
 			"endpoint": "network",
@@ -105,7 +109,8 @@
 			"is_percentage": false,
 			"value_format": "%.1f",
 			"transform_type": "divide",
-			"transform_divisor": 3600
+			"transform_divisor": 3600,
+			"panel_type": "stat"
 		},
 		{
 			"endpoint": "swap/bytes",
@@ -128,7 +133,8 @@
 			"value_format": "%.2f",
 			"param_name": "mount_point",
 			"transform_type": "divide",
-			"transform_divisor": 1073741824
+			"transform_divisor": 1073741824,
+			"panel_type": "stat"
 		}
 	]
 }

@@ -67,15 +67,20 @@ SVG_FILES = \
 
 all: build
 
-build: build-backend
+# Create scripts symlink for local development (scripts -> src/scripts)
+scripts:
+	@ln -sf src/scripts scripts
+
+build: scripts build-backend
 	$(CC) -o $(BIN_DIR)/$(GATE_BIN) $(GATE_SRC) -g $(CFLAGS)
 
-build-backend:
+build-backend: scripts
 	@mkdir -p $(BIN_DIR)
 	$(CC) -o $(BIN_DIR)/$(SERVER_BIN) $(SERVER_SRC) -g $(CFLAGS) $(LIBS)
 
 clean:
 	rm -f $(BIN_DIR)/$(SERVER_BIN) $(BIN_DIR)/$(GATE_BIN) $(CLIENT_BIN) $(SVG_FILES)
+	rm -f scripts  # Remove symlink
 	rmdir $(EXAMPLES_DIR) 2>/dev/null || true
 
 # ============================================================
