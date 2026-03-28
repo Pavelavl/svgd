@@ -31,7 +31,7 @@ jobs:
         run: |
           dpkg --add-architecture arm64
           apt-get update
-          apt-get install -y gcc-aarch64-linux-gnu librrd-dev:arm64 duktape-dev:arm64
+          apt-get install -y gcc-aarch64-linux-gnu librrd-dev:arm64 duktape-dev:arm64 libssl-dev:arm64
 
       - name: Build for ARM64
         run: make ARCH=arm64 build
@@ -45,6 +45,8 @@ jobs:
           cp bin/svgd deploy/package/
           cp bin/svgd-gate deploy/package/
           cp -r gate/static deploy/package/
+          mkdir -p deploy/package/auth
+          cp auth.example.json deploy/package/auth/
           cp -r src/scripts deploy/package/
           cp config.json deploy/package/
           cd deploy && tar czf svgd-deploy.tar.gz package/
@@ -93,6 +95,23 @@ jobs:
             sudo mkdir -p /opt/svgd/scripts
             sudo mkdir -p /opt/svgd/gate/static
             sudo mkdir -p /opt/svgd/rrd
+
+            # Setup auth config - create from example if not exists
+            sudo mkdir -p /opt/svgd/gate/auth
+            if [ ! -f /opt/svgd/gate/auth/auth.json ]; then
+              if [ -f package/auth/auth.example.json ]; then
+                sudo cp package/auth/auth.example.json /opt/svgd/gate/auth/auth.json
+                echo "WARNING: auth.json created from example - please update with real credentials!"
+              else
+                # Generate random credentials
+                PASSWORD=$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16)
+                SECRET=$(openssl rand -base64 32 | tr -d "=+/")
+                jq -n --arg pw "$PASSWORD" --arg sec "$SECRET" \
+                  '{"password":$pw,"jwt_secret":$sec,"token_expiry_days":7}' \
+                  | sudo tee /opt/svgd/gate/auth/auth.json > /dev/null
+                echo "Generated auth.json - password: $PASSWORD"
+              fi
+            fi
 
             sudo cp package/svgd /opt/svgd/bin/
             sudo cp package/svgd-gate /opt/svgd/bin/

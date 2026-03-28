@@ -18,7 +18,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y librrd-dev duktape-dev gcc make jq
+          sudo apt-get install -y librrd-dev duktape-dev gcc make jq libssl-dev
 
       - name: Build
         run: make build
@@ -178,6 +178,17 @@ jobs:
           python3 -m venv .venv
           .venv/bin/pip install -r tests/internal/ui/requirements.txt
 
+      - name: Create test auth config
+        run: |
+          mkdir -p gate/auth
+          cat > gate/auth/auth.json << 'EOF'
+          {
+            "password": "test",
+            "jwt_secret": "test_secret_key_for_ci_cd_min_32_chars_long",
+            "token_expiry_days": 7
+          }
+          EOF
+
       - name: Start servers
         run: |
           ./bin/svgd ./config.json &
@@ -187,7 +198,7 @@ jobs:
       - name: Run UI tests
         run: |
           . .venv/bin/activate
-          make test-ui
+          AUTH_TEST_PASSWORD=test make test-ui
 
   build-and-push:
     needs: [test-unit, test-ui]

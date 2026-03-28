@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include "../lsrp/lsrp_client.h"
+#include "auth/auth.h"
 
 #define DEFAULT_SVGD_HOST "127.0.0.1"
 #define DEFAULT_SVGD_PORT 8081
@@ -643,6 +644,106 @@ static const char* get_api_content_type(const char *endpoint) {
     return "image/svg+xml";
 }
 
+// Extract Authorization header from request
+static char* extract_auth_token(const char *request) {
+    const char *auth_hdr = strstr(request, "Authorization: Bearer ");
+    if (!auth_hdr) return NULL;
+
+    auth_hdr += 22; // Skip "Authorization: Bearer "
+    const char *end = strchr(auth_hdr, '\r');
+    const char *end2 = strchr(auth_hdr, '\n');
+    if (end2 && (!end || end2 < end)) end = end2;
+
+    if (!end) return NULL;
+
+    size_t len = end - auth_hdr;
+    char *token = malloc(len + 1);
+    if (!token) return NULL;
+    strncpy(token, auth_hdr, len);
+    token[len] = '\0';
+    return token;
+}
+
+// Send 401 Unauthorized response
+static void send_401_auth(int client_sock, const char *message) {
+    char response[512];
+    int body_len = strlen(message) + 12; // {"error":"..."} = 10 + len + 2
+    int len = snprintf(response, sizeof(response),
+                       "HTTP/1.1 401 Unauthorized\r\n"
+                       "Content-Type: application/json\r\n"
+                       "Content-Length: %d\r\n"
+                       "Access-Control-Allow-Origin: *\r\n"
+                       "Connection: close\r\n\r\n"
+                       "{\"error\":\"%s\"}",
+                       body_len, message);
+    send(client_sock, response, len, MSG_NOSIGNAL);
+}
+
+// Check if path requires authentication
+static int requires_auth(const char *path) {
+    // Static files and login page are public
+    if (is_static_request(path)) {
+        return 0;
+    }
+
+    // Auth endpoints
+    if (strcmp(path, "/_auth/login") == 0 || strcmp(path, "/_auth/verify") == 0) {
+        return 0;
+    }
+
+    // Everything else requires auth (API endpoints)
+    return 1;
+}
+
+// Handle POST /_auth/login - exchange password for token
+static void handle_login(int client_sock, const char *body) {
+    if (!auth_is_configured()) {
+        send_401_auth(client_sock, "Auth not configured");
+        return;
+    }
+
+    // Parse password from JSON
+    char password[MAX_PASSWORD_LEN] = "";
+    const char *p = strstr(body, "\"password\"");
+    if (p) {
+        p = strchr(p + 10, '"');
+        if (p) {
+            p++;
+            const char *end = strchr(p, '"');
+            if (end) {
+                size_t len = end - p;
+                if (len < MAX_PASSWORD_LEN) {
+                    strncpy(password, p, len);
+                    password[len] = '\0';
+                }
+            }
+        }
+    }
+
+    if (!password[0]) {
+        send_401_auth(client_sock, "Password required");
+        return;
+    }
+
+    if (!auth_verify_password(password)) {
+        send_401_auth(client_sock, "Invalid password");
+        return;
+    }
+
+    // Create token
+    char *token = auth_create_token();
+    if (!token) {
+        send_json(client_sock, 500, "{\"error\":\"Failed to create token\"}");
+        return;
+    }
+
+    // Return token
+    char response[MAX_TOKEN_SIZE + 64];
+    snprintf(response, sizeof(response), "{\"token\":\"%s\"}", token);
+    send_json(client_sock, 200, response);
+    free(token);
+}
+
 int main(int argc, char *argv[]) {
     // Parse command-line arguments
     if (argc > 1 && argv[1][0] != '\0') global_config.svgd_host = argv[1];
@@ -661,6 +762,12 @@ int main(int argc, char *argv[]) {
         // Create default datasource from command-line args
         fprintf(stderr, "No datasources loaded, creating default from args\n");
         add_datasource("default", global_config.svgd_host, global_config.svgd_port);
+    }
+
+    // Load auth configuration (try multiple paths)
+    if (auth_load_config("auth.json") != 0 &&
+        auth_load_config("gate/auth/auth.json") != 0) {
+        fprintf(stderr, "Warning: Auth config not loaded, API endpoints will return 401\n");
     }
 
     // Setup signal handlers
@@ -733,6 +840,84 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
+        // Handle auth login
+        if (strcmp(path, "/_auth/login") == 0) {
+            if (strncmp(buffer, "POST ", 5) == 0) {
+                char *body = extract_body(buffer);
+                if (body) {
+                    handle_login(client_sock, body);
+                    free(body);
+                } else {
+                    send_json(client_sock, 400, "{\"error\":\"Missing request body\"}");
+                }
+            } else if (strncmp(buffer, "OPTIONS ", 8) == 0) {
+                const char *resp = "HTTP/1.1 200 OK\r\n"
+                    "Access-Control-Allow-Origin: *\r\n"
+                    "Access-Control-Allow-Methods: POST, OPTIONS\r\n"
+                    "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
+                    "Content-Length: 0\r\n\r\n";
+                send(client_sock, resp, strlen(resp), MSG_NOSIGNAL);
+            } else {
+                send_404(client_sock);
+            }
+            free(path);
+            shutdown(client_sock, SHUT_WR);
+            close(client_sock);
+            continue;
+        }
+
+        // Handle GET /_auth/verify - check if token is valid
+        if (strcmp(path, "/_auth/verify") == 0) {
+            if (strncmp(buffer, "GET ", 4) == 0 || strncmp(buffer, "OPTIONS ", 8) == 0) {
+                if (strncmp(buffer, "OPTIONS ", 8) == 0) {
+                    const char *resp = "HTTP/1.1 200 OK\r\n"
+                        "Access-Control-Allow-Origin: *\r\n"
+                        "Access-Control-Allow-Methods: GET, OPTIONS\r\n"
+                        "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
+                        "Content-Length: 0\r\n\r\n";
+                    send(client_sock, resp, strlen(resp), MSG_NOSIGNAL);
+                } else {
+                    char *token = extract_auth_token(buffer);
+                    if (token && auth_validate_token(token) == 0) {
+                        send_json(client_sock, 200, "{\"valid\":true}");
+                    } else {
+                        send_401_auth(client_sock, "Invalid or expired token");
+                    }
+                    if (token) free(token);
+                }
+            } else {
+                send_404(client_sock);
+            }
+            free(path);
+            shutdown(client_sock, SHUT_WR);
+            close(client_sock);
+            continue;
+        }
+
+        // Handle CORS preflight for all routes BEFORE auth check
+        if (strncmp(buffer, "OPTIONS ", 8) == 0) {
+            handle_options(client_sock);
+            free(path);
+            shutdown(client_sock, SHUT_WR);
+            close(client_sock);
+            continue;
+        }
+
+        // Check authentication for protected routes
+        if (requires_auth(path)) {
+            char *token = extract_auth_token(buffer);
+            int auth_valid = (token && auth_validate_token(token) == 0);
+            if (token) free(token);
+
+            if (!auth_valid) {
+                send_401_auth(client_sock, "Missing or invalid token");
+                free(path);
+                shutdown(client_sock, SHUT_WR);
+                close(client_sock);
+                continue;
+            }
+        }
+
         // Handle datasources API
         if (strcmp(path, "/_datasources") == 0) {
             if (strncmp(buffer, "GET ", 4) == 0) {
@@ -791,14 +976,6 @@ int main(int argc, char *argv[]) {
                 send_404(client_sock);
             }
             free(path);
-            shutdown(client_sock, SHUT_WR);
-            close(client_sock);
-            continue;
-        }
-
-        // Handle CORS preflight for other routes
-        if (strncmp(buffer, "OPTIONS ", 8) == 0) {
-            handle_options(client_sock);
             shutdown(client_sock, SHUT_WR);
             close(client_sock);
             continue;

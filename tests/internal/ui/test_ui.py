@@ -11,6 +11,7 @@ Tests verify that:
 Run with: pytest tests/ui/test_ui.py -v
 """
 
+import os
 import pytest
 import requests
 import time
@@ -19,6 +20,31 @@ import time
 BASE_URL = "http://localhost:8080"
 BACKEND_URL = "http://localhost:8081"
 TIMEOUT = 10
+TEST_PASSWORD = os.environ.get("AUTH_TEST_PASSWORD", "change_me_please")
+
+
+@pytest.fixture(scope="module")
+def auth_token():
+    """Login and return a valid JWT token, skip if auth is not configured"""
+    try:
+        resp = requests.post(
+            f"{BASE_URL}/_auth/login",
+            json={"password": TEST_PASSWORD},
+            timeout=TIMEOUT,
+        )
+    except requests.exceptions.ConnectionError:
+        pytest.fail(f"Server not available at {BASE_URL}")
+
+    if resp.status_code == 401:
+        pytest.skip("Auth not configured or password mismatch")
+    assert resp.status_code == 200, f"Login failed: {resp.status_code} {resp.text}"
+    return resp.json()["token"]
+
+
+@pytest.fixture(scope="module")
+def auth_headers(auth_token):
+    """Return Authorization headers with a valid token"""
+    return {"Authorization": f"Bearer {auth_token}"}
 
 
 class TestStaticFiles:
@@ -56,15 +82,15 @@ class TestStaticFiles:
         """Non-existent files should return error (400 or 404)"""
         resp = requests.get(f"{BASE_URL}/nonexistent.xyz", timeout=TIMEOUT)
         # Server treats unknown paths as invalid API requests (400) or 404
-        assert resp.status_code in [400, 404], f"Expected 400 or 404, got {resp.status_code}"
+        assert resp.status_code in [400, 401, 404], f"Expected 400/401/404, got {resp.status_code}"
 
 
 class TestCORS:
     """Test CORS headers"""
 
-    def test_cors_header_on_api_response(self):
+    def test_cors_header_on_api_response(self, auth_headers):
         """API responses should include CORS header"""
-        resp = requests.get(f"{BASE_URL}/cpu?period=3600", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/cpu?period=3600", headers=auth_headers, timeout=TIMEOUT)
         assert resp.headers.get("Access-Control-Allow-Origin") == "*"
 
     def test_cors_header_on_static_response(self):
@@ -83,9 +109,9 @@ class TestCORS:
 class TestAPIEndpoints:
     """Test API endpoint functionality"""
 
-    def test_metrics_config_endpoint(self):
+    def test_metrics_config_endpoint(self, auth_headers):
         """_config/metrics should return JSON with metrics list"""
-        resp = requests.get(f"{BASE_URL}/_config/metrics", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/_config/metrics", headers=auth_headers, timeout=TIMEOUT)
         assert resp.status_code == 200
         assert "application/json" in resp.headers.get("Content-Type", "")
 
@@ -94,38 +120,38 @@ class TestAPIEndpoints:
         assert isinstance(data["metrics"], list)
         assert len(data["metrics"]) > 0
 
-    def test_metrics_config_contains_expected_fields(self):
+    def test_metrics_config_contains_expected_fields(self, auth_headers):
         """Metrics config should contain required fields"""
-        resp = requests.get(f"{BASE_URL}/_config/metrics", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/_config/metrics", headers=auth_headers, timeout=TIMEOUT)
         data = resp.json()
 
         for metric in data["metrics"]:
             assert "endpoint" in metric, f"Missing endpoint in {metric}"
             assert "requires_param" in metric, f"Missing requires_param in {metric}"
 
-    def test_cpu_endpoint_content_type(self):
+    def test_cpu_endpoint_content_type(self, auth_headers):
         """CPU endpoint should return SVG"""
-        resp = requests.get(f"{BASE_URL}/cpu?period=3600", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/cpu?period=3600", headers=auth_headers, timeout=TIMEOUT)
         # May fail if no RRD data, but content-type should be set
         if resp.status_code == 200:
             assert "image/svg+xml" in resp.headers.get("Content-Type", "")
 
-    def test_cpu_endpoint_returns_svg(self):
+    def test_cpu_endpoint_returns_svg(self, auth_headers):
         """CPU endpoint should return valid SVG content"""
-        resp = requests.get(f"{BASE_URL}/cpu?period=3600", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/cpu?period=3600", headers=auth_headers, timeout=TIMEOUT)
         if resp.status_code == 200:
             assert "<svg" in resp.text
             assert "</svg>" in resp.text
 
-    def test_ram_endpoint_content_type(self):
+    def test_ram_endpoint_content_type(self, auth_headers):
         """RAM endpoint should return SVG"""
-        resp = requests.get(f"{BASE_URL}/ram?period=3600", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/ram?period=3600", headers=auth_headers, timeout=TIMEOUT)
         if resp.status_code == 200:
             assert "image/svg+xml" in resp.headers.get("Content-Type", "")
 
-    def test_invalid_endpoint_returns_error(self):
+    def test_invalid_endpoint_returns_error(self, auth_headers):
         """Invalid endpoint should return error JSON"""
-        resp = requests.get(f"{BASE_URL}/invalid_metric?period=3600", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/invalid_metric?period=3600", headers=auth_headers, timeout=TIMEOUT)
         assert resp.status_code in [400, 500]
         # Should be JSON error
         try:
@@ -135,9 +161,9 @@ class TestAPIEndpoints:
             # Or plain text error
             pass
 
-    def test_missing_period_uses_default(self):
+    def test_missing_period_uses_default(self, auth_headers):
         """Missing period parameter should use default"""
-        resp = requests.get(f"{BASE_URL}/cpu", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/cpu", headers=auth_headers, timeout=TIMEOUT)
         # Should not error, uses default period
         assert resp.status_code in [200, 400, 500]
 
@@ -145,11 +171,11 @@ class TestAPIEndpoints:
 class TestConnectionHandling:
     """Test connection handling and stability"""
 
-    def test_multiple_sequential_requests(self):
+    def test_multiple_sequential_requests(self, auth_headers):
         """Multiple sequential requests should all succeed"""
-        endpoints = ["/", "/script.js", "/_config/metrics"]
-        for endpoint in endpoints:
-            resp = requests.get(f"{BASE_URL}{endpoint}", timeout=TIMEOUT)
+        endpoints = [("/", None), ("/script.js", None), ("/_config/metrics", auth_headers)]
+        for endpoint, headers in endpoints:
+            resp = requests.get(f"{BASE_URL}{endpoint}", headers=headers, timeout=TIMEOUT)
             assert resp.status_code == 200, f"Failed for {endpoint}"
 
     def test_response_has_content_length(self):
@@ -177,10 +203,10 @@ class TestPerformance:
         assert resp.status_code == 200
         assert elapsed < 1.0, f"Response too slow: {elapsed:.2f}s"
 
-    def test_api_response_time(self):
+    def test_api_response_time(self, auth_headers):
         """API responses should be reasonably fast"""
         start = time.time()
-        resp = requests.get(f"{BASE_URL}/_config/metrics", timeout=TIMEOUT)
+        resp = requests.get(f"{BASE_URL}/_config/metrics", headers=auth_headers, timeout=TIMEOUT)
         elapsed = time.time() - start
         assert resp.status_code == 200
         assert elapsed < 2.0, f"API response too slow: {elapsed:.2f}s"

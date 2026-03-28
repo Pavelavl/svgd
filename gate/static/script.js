@@ -181,7 +181,7 @@ async function fetchAvailableMetrics() {
         const ds = config.activeDatasource ? `?datasource=${config.activeDatasource}` : '';
         const url = `${config.apiBaseUrl}/_config/metrics${ds}`;
         console.log('Fetching metrics from:', url);
-        const response = await fetch(url);
+        const response = await fetchWithAuth(url);
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -213,7 +213,7 @@ async function fetchAvailableMetrics() {
 // ===== Datasource API Functions =====
 async function fetchDatasources() {
     try {
-        const response = await fetch(`${config.apiBaseUrl}/_datasources`);
+        const response = await fetchWithAuth(`${config.apiBaseUrl}/_datasources`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         config.datasources = data.datasources || [];
@@ -233,7 +233,7 @@ async function fetchDatasources() {
 
 async function addDatasource(name, host, port) {
     try {
-        const response = await fetch(`${config.apiBaseUrl}/_datasources`, {
+        const response = await fetchWithAuth(`${config.apiBaseUrl}/_datasources`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name, host, port })
@@ -256,7 +256,7 @@ async function addDatasource(name, host, port) {
 
 async function deleteDatasource(name) {
     try {
-        const response = await fetch(`${config.apiBaseUrl}/_datasources/${name}`, {
+        const response = await fetchWithAuth(`${config.apiBaseUrl}/_datasources/${name}`, {
             method: 'DELETE'
         });
 
@@ -285,7 +285,7 @@ async function deleteDatasource(name) {
 
 async function setDefaultDatasource(name) {
     try {
-        const response = await fetch(`${config.apiBaseUrl}/_datasources/${name}/default`, {
+        const response = await fetchWithAuth(`${config.apiBaseUrl}/_datasources/${name}/default`, {
             method: 'PUT'
         });
 
@@ -303,7 +303,7 @@ async function setDefaultDatasource(name) {
 
 async function testDatasource(name) {
     try {
-        const response = await fetch(`${config.apiBaseUrl}/_config/metrics?datasource=${name}`);
+        const response = await fetchWithAuth(`${config.apiBaseUrl}/_config/metrics?datasource=${name}`);
         if (response.ok) {
             showToast(`Connection to "${name}" successful`, 'success');
             return true;
@@ -464,7 +464,7 @@ async function fetchSVG(endpoint, period, width, height) {
         const h = height || 450;
         const ds = config.activeDatasource ? `&datasource=${config.activeDatasource}` : '';
         const url = `${config.apiBaseUrl}/${endpoint}?period=${period}&width=${w}&height=${h}${ds}`;
-        const response = await fetch(url);
+        const response = await fetchWithAuth(url);
 
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
@@ -1175,6 +1175,9 @@ function stopRefreshTimer() {
 
 // ===== Event Listeners =====
 document.addEventListener('DOMContentLoaded', () => {
+    // Check authentication
+    checkAuth();
+
     // Theme toggle
     document.getElementById('themeToggle').addEventListener('click', function () {
         document.body.classList.toggle('light-theme');

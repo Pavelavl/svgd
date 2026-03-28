@@ -1,9 +1,9 @@
 CC = gcc
-CFLAGS = -Ilsrp -Wall -Wextra -O2
+CFLAGS = -I../lsrp -I../auth -Wall -Wextra -O2
 
 LSRP_DIR = ../lsrp
 
-GATE_SRC = ./*.c $(LSRP_DIR)/lsrp_client.c
+GATE_SRC = ./*.c auth/auth.c $(LSRP_DIR)/lsrp_client.c
 SERVER_BIN = svgd-gate
 
 DEF_HOST = 127.0.0.1
@@ -17,4 +17,4 @@ run:
 	../bin/svgd-gate $(DEF_HOST) $(DEF_SVGD_PORT) $(DEF_HTTP_PORT) $(DEF_STATIC_PATH)
 
 build:
-	$(CC) -o ../bin/$(SERVER_BIN) $(GATE_SRC) -g $(CFLAGS)
+	$(CC) -o ../bin/$(SERVER_BIN) $(GATE_SRC) -g $(CFLAGS) -lcrypto -lssl

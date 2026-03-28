@@ -18,6 +18,7 @@ endif
 
 CFLAGS   = -Ilsrp -Wall -Wextra -O2 -pthread
 LIBS     = -lrrd -lduktape
+GATE_LIBS = -lcrypto -lssl
 
 LSRP_DIR    = lsrp
 BIN_DIR     = bin
@@ -25,7 +26,7 @@ EXAMPLES_DIR = examples
 
 SERVER_SRC = src/main.c src/cfg.c src/http.c src/handler.c src/rrd/reader.c src/rrd/cache.c src/rrd/svg.c $(LSRP_DIR)/lsrp_server.c
 SERVER_BIN = svgd
-GATE_SRC   = gate/*.c $(LSRP_DIR)/lsrp_client.c
+GATE_SRC   = gate/*.c gate/auth/*.c $(LSRP_DIR)/lsrp_client.c
 GATE_BIN   = svgd-gate
 CLIENT_BIN = $(LSRP_DIR)/bin/lsrp
 
@@ -50,7 +51,7 @@ SVG_FILES = \
 # === Phony Targets ===
 .PHONY: all build build-backend clean install
 .PHONY: run run-backend generate
-.PHONY: test test-all test-e2e test-load test-ui test-comparison
+.PHONY: test test-all test-e2e test-load test-ui test-ui-browser test-comparison
 .PHONY: report generate-report generate-charts clean-results
 .PHONY: docker-build docker-up docker-down docker-logs docker-test docker-test-ui
 .PHONY: docker-bases svgd-base collectd-base
@@ -72,7 +73,7 @@ scripts:
 	@ln -sf src/scripts scripts
 
 build: scripts build-backend
-	$(CC) -o $(BIN_DIR)/$(GATE_BIN) $(GATE_SRC) -g $(CFLAGS)
+	$(CC) -o $(BIN_DIR)/$(GATE_BIN) $(GATE_SRC) -g $(CFLAGS) $(GATE_LIBS)
 
 build-backend: scripts
 	@mkdir -p $(BIN_DIR)
@@ -120,7 +121,10 @@ test-load:
 test-comparison: test-bench
 
 test-ui:
-	./tests/internal/ui/run_tests.sh -v
+	bash tests/internal/ui/run_tests.sh -v
+
+test-ui-browser:
+	bash tests/internal/ui/run_tests.sh --browser -v
 
 test-deps:
 	@if [ ! -d "tests/venv" ]; then \

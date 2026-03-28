@@ -16,3 +16,7 @@ PRESENTATION.*
 
 # Benchmark output files
 tests/benchmark/output/*.csv
+
+# Auth configuration (contains secrets)
+auth.json
+gate/auth/auth.json
