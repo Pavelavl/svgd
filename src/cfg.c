@@ -253,21 +253,24 @@ MetricConfig* find_metric_config(Config *config, const char *endpoint_path) {
         }
     }
     
-    // Second pass: look for parametrized matches
-    // e.g., endpoint_path="cpu/process/nginx" should match endpoint="cpu/process"
+    // Second pass: look for parametrized matches (longest prefix wins)
+    // e.g., endpoint_path="disk/io_time/nvme0n1" should match "disk/io_time" not "disk"
+    MetricConfig *best_match = NULL;
+    size_t best_len = 0;
     for (int i = 0; i < config->metrics_count; i++) {
         if (config->metrics[i].requires_param) {
             size_t endpoint_len = strlen(config->metrics[i].endpoint);
             if (strncmp(config->metrics[i].endpoint, endpoint_path, endpoint_len) == 0) {
                 // Check if there's a parameter after the endpoint
-                if (endpoint_path[endpoint_len] == '/' || endpoint_path[endpoint_len] == '\0') {
-                    return &config->metrics[i];
+                if (endpoint_path[endpoint_len] == '/' && endpoint_len > best_len) {
+                    best_match = &config->metrics[i];
+                    best_len = endpoint_len;
                 }
             }
         }
     }
-    
-    return NULL;
+
+    return best_match;
 }
 
 // Generate JSON list of available metrics

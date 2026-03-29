@@ -34,8 +34,7 @@
 			"is_percentage": false,
 			"value_format": "%.2f",
 			"param_name": "process_name",
-			"transform_type": "sum",
-			"panel_type": "stat"
+			"transform_type": "sum"
 		},
 		{
 			"endpoint": "ram",
@@ -135,6 +134,131 @@
 			"transform_type": "divide",
 			"transform_divisor": 1073741824,
 			"panel_type": "stat"
+		},
+		{
+			"endpoint": "filesystem/free",
+			"rrd_path": "df-%s/df_complex-free.rrd",
+			"requires_param": true,
+			"title": "Filesystem Free Space",
+			"y_label": "Free (GB)",
+			"is_percentage": false,
+			"value_format": "%.2f",
+			"param_name": "mount_point",
+			"transform_type": "divide",
+			"transform_divisor": 1073741824,
+			"panel_type": "stat"
+		},
+		{
+			"endpoint": "ram/cached",
+			"rrd_path": "memory/percent-cached.rrd",
+			"requires_param": false,
+			"title": "Cached Memory",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f",
+			"panel_type": "stat"
+		},
+		{
+			"endpoint": "ram/buffered",
+			"rrd_path": "memory/percent-buffered.rrd",
+			"requires_param": false,
+			"title": "Buffered Memory",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f",
+			"panel_type": "stat"
+		},
+		{
+			"endpoint": "swap/percent",
+			"rrd_path": "swap/swap_percent-used.rrd",
+			"requires_param": false,
+			"title": "Swap Utilization",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f",
+			"panel_type": "stat"
+		},
+		{
+			"endpoint": "disk/throughput",
+			"rrd_path": "disk-%s/disk_octets.rrd",
+			"requires_param": true,
+			"title": "Disk Throughput",
+			"y_label": "Throughput (MB/s)",
+			"is_percentage": false,
+			"value_format": "%.2f",
+			"param_name": "disk",
+			"transform_type": "divide",
+			"transform_divisor": 1048576
+		},
+		{
+			"endpoint": "disk/io_time",
+			"rrd_path": "disk-%s/disk_time.rrd",
+			"requires_param": true,
+			"title": "Disk I/O Time",
+			"y_label": "IO Time (ms)",
+			"is_percentage": false,
+			"value_format": "%.1f",
+			"param_name": "disk"
+		},
+		{
+			"endpoint": "network/packets",
+			"rrd_path": "interface-%s/if_packets.rrd",
+			"requires_param": true,
+			"title": "Network Packets",
+			"y_label": "Packets/s",
+			"is_percentage": false,
+			"value_format": "%.1f",
+			"param_name": "interface"
+		},
+		{
+			"endpoint": "network/errors",
+			"rrd_path": "interface-%s/if_errors.rrd",
+			"requires_param": true,
+			"title": "Network Errors",
+			"y_label": "Errors/s",
+			"is_percentage": false,
+			"value_format": "%.1f",
+			"param_name": "interface"
+		},
+		{
+			"endpoint": "process/count",
+			"rrd_path": "processes-%s/ps_count.rrd",
+			"requires_param": true,
+			"title": "Process Count",
+			"y_label": "Processes",
+			"is_percentage": false,
+			"value_format": "%d",
+			"param_name": "process_name",
+			"panel_type": "stat"
+		},
+		{
+			"endpoint": "tcp/connections",
+			"rrd_path": "tcpconns-80-local/tcp_connections-ESTABLISHED.rrd",
+			"requires_param": false,
+			"title": "TCP Established Connections",
+			"y_label": "Connections",
+			"is_percentage": false,
+			"value_format": "%d",
+			"panel_type": "stat"
+		},
+		{
+			"endpoint": "tcp/time_wait",
+			"rrd_path": "tcpconns-80-local/tcp_connections-TIME_WAIT.rrd",
+			"requires_param": false,
+			"title": "TCP TIME_WAIT Connections",
+			"y_label": "Connections",
+			"is_percentage": false,
+			"value_format": "%d",
+			"panel_type": "stat"
+		},
+		{
+			"endpoint": "thermal",
+			"rrd_path": "thermal-thermal_zone0/temperature.rrd",
+			"requires_param": false,
+			"title": "CPU Temperature",
+			"y_label": "Temperature (°C)",
+			"is_percentage": false,
+			"value_format": "%.1f"
 		}
 	]
 }

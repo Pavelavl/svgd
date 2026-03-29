@@ -31,6 +31,8 @@ RUN wget -q https://github.com/collectd/collectd/releases/download/collectd-5.12
         --enable-swap \
         --enable-uptime \
         --enable-random \
+        --enable-tcpconns \
+        --enable-thermal \
         LIBS="-lgcrypt" \
     && make -j$(nproc) \
     && make install \
