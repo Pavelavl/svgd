@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <errno.h>
+#include <execinfo.h>
 #include <duktape.h>
 
 #include "../include/cfg.h"
@@ -20,6 +21,18 @@
 #include "../lsrp/lsrp_server.h"
 #include "../include/http.h"
 #include "../include/handler.h"
+
+/* ============================================================================
+ * Crash Handler
+ * ============================================================================ */
+
+static void crash_handler(int sig) {
+    void *frames[32];
+    int n = backtrace(frames, 32);
+    fprintf(stderr, "\n=== CRASH: signal %d ===\n", sig);
+    backtrace_symbols_fd(frames, n, STDERR_FILENO);
+    _exit(128 + sig);
+}
 
 /* ============================================================================
  * Global State
@@ -211,6 +224,13 @@ static int lsrp_handler(lsrp_request_t *req, lsrp_response_t *resp) {
  * ============================================================================ */
 
 int main(int argc, char *argv[]) {
+    /* Install crash handler for SIGSEGV, SIGABRT, SIGBUS */
+    struct sigaction sa_crash = { .sa_handler = crash_handler };
+    sigemptyset(&sa_crash.sa_mask);
+    sigaction(SIGSEGV, &sa_crash, NULL);
+    sigaction(SIGABRT, &sa_crash, NULL);
+    sigaction(SIGBUS, &sa_crash, NULL);
+
     /* Initialize Duktape context */
     global_ctx = duk_create_heap_default();
     if (!global_ctx) {

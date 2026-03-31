@@ -51,13 +51,13 @@ static MetricData* clone_metric_data(MetricData *src) {
     if (!dst) return NULL;
 
     dst->series_count = src->series_count;
-    dst->series_names = malloc(dst->series_count * sizeof(char*));
-    dst->series_data = malloc(dst->series_count * sizeof(DataPoint*));
-    dst->series_counts = malloc(dst->series_count * sizeof(int));
+    dst->series_names = calloc(dst->series_count, sizeof(char*));
+    dst->series_data = calloc(dst->series_count, sizeof(DataPoint*));
+    dst->series_counts = calloc(dst->series_count, sizeof(int));
     dst->param1 = strdup(src->param1 ? src->param1 : "");
     dst->metric_config = src->metric_config;
 
-    if (!dst->series_names || !dst->series_data || !dst->series_counts) {
+    if (dst->series_count > 0 && (!dst->series_names || !dst->series_data || !dst->series_counts)) {
         free(dst->series_names);
         free(dst->series_data);
         free(dst->series_counts);
@@ -66,35 +66,34 @@ static MetricData* clone_metric_data(MetricData *src) {
         return NULL;
     }
 
-    /* Verify all allocations succeeded */
-    for (int i = 0; i < dst->series_count; i++) {
-        if (!dst->series_names[i] || !dst->series_data[i]) {
-            /* Cleanup partial allocations */
-            for (int j = 0; j < i; j++) {
-                free(dst->series_names[j]);
-                free(dst->series_data[j]);
-            }
-            if (i < dst->series_count && dst->series_names[i]) free(dst->series_names[i]);
-            free(dst->series_names);
-            free(dst->series_data);
-            free(dst->series_counts);
-            free(dst->param1);
-            free(dst);
-            return NULL;
-        }
-    }
-
-    for (int i = 0; i < dst->series_count; i++) {
+    int i;
+    for (i = 0; i < dst->series_count; i++) {
+        if (!src->series_names[i]) goto clone_fail;
         dst->series_names[i] = strdup(src->series_names[i]);
+        if (!dst->series_names[i]) goto clone_fail;
         dst->series_counts[i] = src->series_counts[i];
         dst->series_data[i] = malloc(dst->series_counts[i] * sizeof(DataPoint));
-        if (dst->series_data[i]) {
-            memcpy(dst->series_data[i], src->series_data[i],
-                   dst->series_counts[i] * sizeof(DataPoint));
+        if (!dst->series_data[i]) {
+            free(dst->series_names[i]);
+            goto clone_fail;
         }
+        memcpy(dst->series_data[i], src->series_data[i],
+               dst->series_counts[i] * sizeof(DataPoint));
     }
 
     return dst;
+
+clone_fail:
+    for (int j = 0; j < i; j++) {
+        free(dst->series_names[j]);
+        free(dst->series_data[j]);
+    }
+    free(dst->series_names);
+    free(dst->series_data);
+    free(dst->series_counts);
+    free(dst->param1);
+    free(dst);
+    return NULL;
 }
 
 void rrd_cache_init(int ttl_seconds) {

@@ -16,7 +16,7 @@ else
     CC = gcc
 endif
 
-CFLAGS   = -Ilsrp -Wall -Wextra -O2 -pthread -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security
+CFLAGS   = -Ilsrp -Wall -Wextra -O2 -g -rdynamic -pthread -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security
 LIBS     = -lrrd -lduktape
 GATE_LIBS = -lcrypto -lssl
 
