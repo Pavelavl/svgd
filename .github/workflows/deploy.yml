@@ -1,7 +1,12 @@
 name: Deploy
 
 on:
-  workflow_dispatch:  # Ручной запуск
+  workflow_dispatch:
+    inputs:
+      skip_backends:
+        description: 'Skip backend servers deploy'
+        type: boolean
+        default: false
   push:
     branches: [master]
     paths:
@@ -13,48 +18,101 @@ on:
       - '.github/workflows/deploy.yml'
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-22.04
-    container: debian:trixie
     steps:
-      - name: Install git and build tools
-        run: |
-          apt-get update
-          apt-get install -y git gcc make jq file
-
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install ARM64 cross-compiler
-        run: |
-          dpkg --add-architecture arm64
-          apt-get update
-          apt-get install -y gcc-aarch64-linux-gnu librrd-dev:arm64 duktape-dev:arm64 libssl-dev:arm64
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Build for ARM64
-        run: make ARCH=arm64 build
+      - name: Build gate (ARM64)
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace \
+            --platform linux/arm64 debian:trixie \
+            bash -c "apt-get update && \
+                     apt-get install -y gcc make jq file librrd-dev duktape-dev libssl-dev && \
+                     make build && \
+                     mkdir -p deploy/gate-package && \
+                     cp bin/svgd deploy/gate-package/ && \
+                     cp bin/svgd-gate deploy/gate-package/ && \
+                     cp -r gate/static deploy/gate-package/ && \
+                     mkdir -p deploy/gate-package/auth && \
+                     cp auth.example.json deploy/gate-package/auth/ && \
+                     cp -r src/scripts deploy/gate-package/ && \
+                     cp config.json deploy/gate-package/"
+
+      - name: Build backends (x86_64)
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/workspace -w /workspace \
+            --platform linux/amd64 debian:trixie \
+            bash -c "apt-get update && \
+                     apt-get install -y gcc make jq file librrd-dev duktape-dev && \
+                     make build-backend && \
+                     mkdir -p deploy/backend-package/collectd.conf.d && \
+                     cp bin/svgd deploy/backend-package/ && \
+                     cp -r src/scripts deploy/backend-package/ && \
+                     cp config.json deploy/backend-package/ && \
+                     cp .infra/collectd/collectd.conf.d/*.conf deploy/backend-package/collectd.conf.d/"
+
+      - name: Fix permissions
+        run: sudo chown -R $(id -u):$(id -g) deploy/
 
       - name: Verify binaries
-        run: file bin/svgd bin/svgd-gate
-
-      - name: Create deployment package
         run: |
-          mkdir -p deploy/package
-          cp bin/svgd deploy/package/
-          cp bin/svgd-gate deploy/package/
-          cp -r gate/static deploy/package/
-          mkdir -p deploy/package/auth
-          cp auth.example.json deploy/package/auth/
-          cp -r src/scripts deploy/package/
-          cp config.json deploy/package/
-          cd deploy && tar czf svgd-deploy.tar.gz package/
+          echo "=== Gate (ARM64) ==="
+          file deploy/gate-package/svgd deploy/gate-package/svgd-gate
+          echo "=== Backend (x86_64) ==="
+          file deploy/backend-package/svgd
 
-      - name: Copy to root for transfer
-        run: cp deploy/svgd-deploy.tar.gz svgd-deploy.tar.gz
+      - name: Package gate
+        run: cd deploy && tar czf gate-deploy.tar.gz gate-package/
 
-      - name: Transfer file to server
+      - name: Package backend
+        run: cd deploy && tar czf backend-deploy.tar.gz backend-package/
+
+      - name: Upload gate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-deploy
+          path: deploy/gate-deploy.tar.gz
+          retention-days: 1
+
+      - name: Upload backend artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-deploy
+          path: deploy/backend-deploy.tar.gz
+          retention-days: 1
+
+  check-secrets:
+    runs-on: ubuntu-22.04
+    outputs:
+      has_gate: ${{ steps.check.outputs.has_gate }}
+    steps:
+      - id: check
+        env:
+          _DH: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          if [ -n "$_DH" ]; then
+            echo "has_gate=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_gate=false" >> $GITHUB_OUTPUT
+          fi
+
+  deploy-gate:
+    needs: [build, check-secrets]
+    runs-on: ubuntu-22.04
+    if: ${{ needs.check-secrets.outputs.has_gate == 'true' }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: gate-deploy
+
+      - name: Transfer to gate server
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -62,11 +120,11 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           passphrase: ${{ secrets.DEPLOY_SSH_PASSPHRASE }}
-          source: "svgd-deploy.tar.gz"
+          source: "gate-deploy.tar.gz"
           target: "/tmp/"
           overwrite: true
 
-      - name: Deploy on server
+      - name: Deploy svgd + gate
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.DEPLOY_HOST }}
@@ -77,33 +135,28 @@ jobs:
           shell: bash
           script_stop: true
           script: |
-            # Остановка сервисов
+            set -e
             sudo systemctl stop svgd svgd-gate || true
 
-            # Создание бэкапа
+            # Backup
             sudo mkdir -p /opt/svgd/backup
             sudo cp -r /opt/svgd/bin /opt/svgd/backup/ 2>/dev/null || true
             sudo cp /opt/svgd/config.json /opt/svgd/backup/ 2>/dev/null || true
 
-            # Перемещение и распаковка
-            sudo mv /tmp/svgd-deploy.tar.gz /opt/svgd/
-            cd /opt/svgd && sudo tar xzf svgd-deploy.tar.gz
-            sudo rm svgd-deploy.tar.gz
+            # Extract
+            sudo mv /tmp/gate-deploy.tar.gz /opt/svgd/
+            cd /opt/svgd && sudo tar xzf gate-deploy.tar.gz
+            sudo rm gate-deploy.tar.gz
 
-            # Установка файлов
-            sudo mkdir -p /opt/svgd/bin
-            sudo mkdir -p /opt/svgd/scripts
-            sudo mkdir -p /opt/svgd/gate/static
-            sudo mkdir -p /opt/svgd/rrd
+            # Install
+            sudo mkdir -p /opt/svgd/bin /opt/svgd/scripts /opt/svgd/gate/static
 
-            # Setup auth config - create from example if not exists
             sudo mkdir -p /opt/svgd/gate/auth
             if [ ! -f /opt/svgd/gate/auth/auth.json ]; then
-              if [ -f package/auth/auth.example.json ]; then
-                sudo cp package/auth/auth.example.json /opt/svgd/gate/auth/auth.json
-                echo "WARNING: auth.json created from example - please update with real credentials!"
+              if [ -f gate-package/auth/auth.example.json ]; then
+                sudo cp gate-package/auth/auth.example.json /opt/svgd/gate/auth/auth.json
+                echo "WARNING: auth.json created from example - update credentials!"
               else
-                # Generate random credentials
                 PASSWORD=$(openssl rand -base64 16 | tr -d "=+/" | cut -c1-16)
                 SECRET=$(openssl rand -base64 32 | tr -d "=+/")
                 jq -n --arg pw "$PASSWORD" --arg sec "$SECRET" \
@@ -113,22 +166,29 @@ jobs:
               fi
             fi
 
-            sudo cp package/svgd /opt/svgd/bin/
-            sudo cp package/svgd-gate /opt/svgd/bin/
+            sudo cp gate-package/svgd /opt/svgd/bin/
+            sudo cp gate-package/svgd-gate /opt/svgd/bin/
             sudo rm -rf /opt/svgd/gate/static/*
-            sudo cp -r package/static/* /opt/svgd/gate/static/
+            sudo cp -r gate-package/static/* /opt/svgd/gate/static/
             sudo rm -rf /opt/svgd/scripts
-            sudo cp -r package/scripts /opt/svgd/
-            sudo cp package/config.json /opt/svgd/
+            sudo cp -r gate-package/scripts /opt/svgd/
 
-            # Права доступа
+            # Preserve existing config
+            if [ -f /opt/svgd/config.json ]; then
+              echo "Keeping existing config.json"
+            else
+              sudo cp gate-package/config.json /opt/svgd/
+            fi
+
+            sudo rm -rf /opt/svgd/gate-package
             sudo chmod +x /opt/svgd/bin/svgd /opt/svgd/bin/svgd-gate
 
-            # systemd сервисы
+            # systemd
             sudo tee /etc/systemd/system/svgd.service > /dev/null << 'EOF'
             [Unit]
             Description=SVGD Backend
             After=network.target
+
             [Service]
             Type=simple
             User=svgd
@@ -136,6 +196,7 @@ jobs:
             ExecStart=/opt/svgd/bin/svgd /opt/svgd/config.json
             Restart=always
             RestartSec=5
+
             [Install]
             WantedBy=multi-user.target
             EOF
@@ -144,6 +205,7 @@ jobs:
             [Unit]
             Description=SVGD HTTP Gateway
             After=network.target svgd.service
+
             [Service]
             Type=simple
             User=svgd
@@ -151,20 +213,318 @@ jobs:
             ExecStart=/opt/svgd/bin/svgd-gate 127.0.0.1 8081 8080 /opt/svgd/gate/static
             Restart=always
             RestartSec=5
+
             [Install]
             WantedBy=multi-user.target
             EOF
 
-            # Создание пользователя если не существует
             sudo useradd -r -s /bin/false svgd 2>/dev/null || true
             sudo chown -R svgd:svgd /opt/svgd
 
-            # Перезагрузка и запуск
             sudo systemctl daemon-reload
             sudo systemctl enable svgd svgd-gate
             sudo systemctl start svgd svgd-gate
 
-            # Проверка статуса
             sleep 2
             sudo systemctl status svgd --no-pager || true
             sudo systemctl status svgd-gate --no-pager || true
+
+  prepare-backends:
+    needs: build
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      has_servers: ${{ steps.gen.outputs.has_servers }}
+    env:
+      SERVERS_CONFIG: ${{ secrets.DEPLOY_SERVERS_CONFIG }}
+      GATE_HOST: ${{ secrets.DEPLOY_HOST }}
+    steps:
+      - id: gen
+        run: |
+          if [ "${{ github.event.inputs.skip_backends }}" = "true" ]; then
+            echo "has_servers=false" >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+            echo "Backend deploy skipped (manual skip)"
+            exit 0
+          fi
+
+          if [ -z "$SERVERS_CONFIG" ] || [ "$SERVERS_CONFIG" = '' ]; then
+            echo "has_servers=false" >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+            echo "No backend servers configured (DEPLOY_SERVERS_CONFIG not set)"
+            exit 0
+          fi
+
+          echo "has_servers=true" >> $GITHUB_OUTPUT
+
+          # Filter out gate host (already deployed by deploy-gate)
+          FILTERED=$(echo "$SERVERS_CONFIG" | jq --arg gh "$GATE_HOST" '[.[] | select(.host != $gh)]')
+
+          COUNT=$(echo "$FILTERED" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "has_servers=false" >> $GITHUB_OUTPUT
+            echo 'matrix={"include":[]}' >> $GITHUB_OUTPUT
+            echo "All servers filtered (gate host $GATE_HOST already deployed)"
+            exit 0
+          fi
+
+          MATRIX=$(echo "$FILTERED" | jq -c '{include: [to_entries[] | .key]}')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "server_count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Backend servers: $COUNT (excluded gate host $GATE_HOST)"
+
+  deploy-backends:
+    needs: [build, prepare-backends]
+    runs-on: ubuntu-22.04
+    if: ${{ needs.prepare-backends.result == 'success' && needs.prepare-backends.outputs.has_servers == 'true' }}
+    env:
+      SERVERS_CONFIG: ${{ secrets.DEPLOY_SERVERS_CONFIG }}
+      GATE_HOST: ${{ secrets.DEPLOY_HOST }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-deploy
+
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
+      - name: Deploy to all backends
+        run: |
+          set -e
+
+          # Write remote deploy script to file (avoids nested heredoc issues in YAML)
+          cat > /tmp/deploy_backend.sh << 'SCRIPT'
+          set -e
+          RUN_AS=$(id -u)
+          SUDO=""
+          if [ "$RUN_AS" -ne 0 ]; then SUDO="sudo"; fi
+          $SUDO apt-get update -qq
+          $SUDO apt-get install -y -qq librrd-dev duktape-dev
+
+          # --- Extract backend package first (needed for collectd configs) ---
+          $SUDO mkdir -p /opt/svgd/backup /opt/svgd/bin /opt/svgd/scripts
+          $SUDO cp /opt/svgd/bin/svgd /opt/svgd/backup/svgd.$(date +%Y%m%d%H%M%S) 2>/dev/null || true
+          $SUDO mv /tmp/backend-deploy.tar.gz /opt/svgd/
+          cd /opt/svgd && $SUDO tar xzf backend-deploy.tar.gz
+          $SUDO rm backend-deploy.tar.gz
+
+          # --- Collectd setup (skip binary build if already installed) ---
+          if [ ! -f /opt/collectd/sbin/collectd ]; then
+            echo "=== Installing collectd ==="
+            $SUDO apt-get install -y -qq build-essential wget bzip2 gnupg ca-certificates \
+              librrd-dev libpq-dev libgcrypt20-dev libperl-dev \
+              libcurl4-openssl-dev libxml2-dev libmnl-dev libyajl-dev
+            cd /tmp && wget -q https://github.com/collectd/collectd/releases/download/collectd-5.12.0/collectd-5.12.0.tar.bz2
+            tar xjf collectd-5.12.0.tar.bz2 && cd collectd-5.12.0
+            ./configure --prefix=/opt/collectd --disable-python --disable-werror \
+              --enable-rrdtool --enable-aggregation --enable-cpu --enable-df \
+              --enable-disk --enable-interface --enable-load --enable-memory \
+              --enable-processes --enable-swap --enable-uptime --enable-tcpconns \
+              --enable-thermal LIBS="-lgcrypt"
+            make -j$(nproc) && make install
+            cd / && rm -rf /tmp/collectd-5.12.0*
+            $SUDO mkdir -p /opt/collectd/var/lib/collectd/rrd /var/run/collectd
+            echo "=== Collectd binary installed ==="
+          else
+            echo "=== Collectd binary already exists, skipping build ==="
+          fi
+
+          # --- Collectd config (always update) ---
+          cat > /tmp/collectd.conf << 'COLLECTDCFG'
+          Hostname "localhost"
+          FQDNLookup false
+          BaseDir "/opt/collectd/var/lib/collectd"
+          PluginDir "/opt/collectd/lib/collectd"
+          TypesDB "/opt/collectd/share/collectd/types.db"
+          Interval 5
+          LoadPlugin syslog
+          LoadPlugin memory
+          LoadPlugin interface
+          LoadPlugin disk
+          LoadPlugin rrdtool
+          LoadPlugin load
+          LoadPlugin df
+          LoadPlugin swap
+          LoadPlugin uptime
+          LoadPlugin cpu
+          LoadPlugin aggregation
+          LoadPlugin processes
+          LoadPlugin tcpconns
+          LoadPlugin thermal
+          <Plugin syslog>
+              LogLevel info
+          </Plugin>
+          <Plugin memory>
+              ValuesAbsolute true
+              ValuesPercentage true
+          </Plugin>
+          <Plugin rrdtool>
+              DataDir "/opt/collectd/var/lib/collectd/rrd"
+              CacheTimeout 5
+              CacheFlush 5
+              WritesPerSecond 50
+              RRARows 2400
+              RRATimespan 3600 86400 604800
+              StepSize 5
+          </Plugin>
+          Include "/opt/collectd/etc/collectd.conf.d/*.conf"
+          COLLECTDCFG
+          $SUDO mkdir -p /opt/collectd/etc/collectd.conf.d
+          $SUDO cp /tmp/collectd.conf /opt/collectd/etc/collectd.conf
+          $SUDO cp /opt/svgd/backend-package/collectd.conf.d/*.conf /opt/collectd/etc/collectd.conf.d/
+          $SUDO chown -R root:root /opt/collectd
+
+          # Collectd systemd service (always update)
+          cat > /tmp/collectd.service << 'CSVC'
+          [Unit]
+          Description=Collectd Metrics Collector
+          After=network.target
+          [Service]
+          Type=simple
+          ExecStart=/opt/collectd/sbin/collectd -C /opt/collectd/etc/collectd.conf -f
+          Restart=always
+          RestartSec=5
+          [Install]
+          WantedBy=multi-user.target
+          CSVC
+          $SUDO cp /tmp/collectd.service /etc/systemd/system/collectd.service
+          $SUDO systemctl daemon-reload
+          $SUDO systemctl enable collectd
+          $SUDO systemctl restart collectd
+          echo "=== Collectd configured and running ==="
+
+          $SUDO mkdir -p /opt/svgd/backup
+          $SUDO systemctl stop svgd 2>/dev/null || true
+          # --- Install svgd binary ---
+          $SUDO cp /opt/svgd/backend-package/svgd /opt/svgd/bin/svgd
+          $SUDO chmod +x /opt/svgd/bin/svgd
+          $SUDO rm -rf /opt/svgd/scripts
+          $SUDO cp -r /opt/svgd/backend-package/scripts /opt/svgd/
+          if [ -f /opt/svgd/config.json ]; then
+            echo "Keeping existing config.json"
+            $SUDO rm -f /opt/svgd/backend-package/config.json
+          else
+            $SUDO cp /opt/svgd/backend-package/config.json /opt/svgd/
+          fi
+          $SUDO rm -rf /opt/svgd/backend-package
+          $SUDO useradd -r -s /bin/false svgd 2>/dev/null || true
+          $SUDO chown -R svgd:svgd /opt/svgd
+          cat > /tmp/svgd.service << 'EOF'
+          [Unit]
+          Description=SVGD Backend
+          After=network.target
+          [Service]
+          Type=simple
+          User=svgd
+          WorkingDirectory=/opt/svgd
+          ExecStart=/opt/svgd/bin/svgd /opt/svgd/config.json
+          Restart=always
+          RestartSec=5
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+          $SUDO cp /tmp/svgd.service /etc/systemd/system/svgd.service
+          $SUDO systemctl daemon-reload
+          $SUDO systemctl enable svgd
+          $SUDO systemctl restart svgd
+          sleep 2
+          $SUDO systemctl status svgd --no-pager || true
+          SCRIPT
+
+          # Strip leading spaces from the script (YAML block indentation artifact)
+          sed -i 's/^[[:space:]]*//' /tmp/deploy_backend.sh
+
+          SERVERS=$(echo "$SERVERS_CONFIG" | jq --arg gh "$GATE_HOST" -c '[.[] | select(.host != $gh)]')
+          COUNT=$(echo "$SERVERS" | jq 'length')
+
+          for i in $(seq 0 $((COUNT - 1))); do
+            CFG=$(echo "$SERVERS" | jq -c ".[$i]")
+            HOST=$(echo "$CFG" | jq -r '.host')
+            USER=$(echo "$CFG" | jq -r '.user // "root"')
+            PORT=$(echo "$CFG" | jq -r '.port // 22')
+            NAME=$(echo "$HOST" | cut -d. -f1)
+            PASSWORD=$(echo "$CFG" | jq -r '.password // ""')
+            KEY=$(echo "$CFG" | jq -r '.key // ""')
+
+            echo "=== Deploying to $NAME ($HOST:$PORT) as $USER ==="
+
+            # Setup SSH auth
+            if [ -n "$KEY" ]; then
+              KEY_FILE="/tmp/deploy_key_$i"
+              echo -n "$KEY" > "$KEY_FILE"
+              chmod 600 "$KEY_FILE"
+              SSH_OPTS="-i $KEY_FILE -o StrictHostKeyChecking=no"
+            elif [ -n "$PASSWORD" ]; then
+              export SSHPASS="$PASSWORD"
+              SSH_PREFIX="sshpass -e"
+              SSH_OPTS="-o StrictHostKeyChecking=no"
+            else
+              SSH_PREFIX=""
+              SSH_OPTS="-o StrictHostKeyChecking=no"
+            fi
+            SSH_CMD="${SSH_PREFIX:-ssh} ssh $SSH_OPTS"
+            SCP_CMD="${SSH_PREFIX:-scp} scp $SSH_OPTS"
+
+            # Transfer package and script
+            $SCP_CMD -P "$PORT" backend-deploy.tar.gz "${USER}@${HOST}:/tmp/"
+            $SCP_CMD -P "$PORT" /tmp/deploy_backend.sh "${USER}@${HOST}:/tmp/"
+
+            # Execute deploy script on remote
+            $SSH_CMD -p "$PORT" "${USER}@${HOST}" "bash /tmp/deploy_backend.sh"
+
+            rm -f "/tmp/deploy_key_$i"
+            unset SSHPASS
+
+            echo "=== $NAME done ==="
+            echo ""
+          done
+
+  register-backends:
+    needs: [deploy-gate, deploy-backends, prepare-backends, check-secrets]
+    runs-on: ubuntu-22.04
+    if: ${{ always() && needs.check-secrets.outputs.has_gate == 'true' && needs.prepare-backends.outputs.has_servers == 'true' && needs.deploy-backends.result != 'failure' }}
+    env:
+      SERVERS_CONFIG: ${{ secrets.DEPLOY_SERVERS_CONFIG }}
+    steps:
+      - name: Update gate datasources
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          passphrase: ${{ secrets.DEPLOY_SSH_PASSPHRASE }}
+          shell: bash
+          script_stop: true
+          script: |
+            set -e
+
+            GATE_DATASOURCES="/opt/svgd/datasources.json"
+
+            # Build datasources JSON using jq (avoids subshell variable issues)
+            DATASOURCES=$(echo "$SERVERS_CONFIG" | jq -r '
+              [.[] | {
+                name: (.host | split(".")[0]),
+                host: .host,
+                port: (.port // 8081)
+              }] | {
+                default: (.[0].name // ""),
+                datasources: .
+              }
+            ')
+
+            echo "New datasources:"
+            echo "$DATASOURCES"
+
+            sudo cp "$GATE_DATASOURCES" "${GATE_DATASOURCES}.bak" 2>/dev/null || true
+            echo "$DATASOURCES" | sudo tee "$GATE_DATASOURCES" > /dev/null
+            sudo chown svgd:svgd "$GATE_DATASOURCES"
+
+            sudo systemctl restart svgd-gate
+
+            sleep 2
+            sudo systemctl status svgd-gate --no-pager
+
+            echo ""
+            echo "=== Gate datasources updated ==="
