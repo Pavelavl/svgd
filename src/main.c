@@ -32,8 +32,7 @@ static int server_sock = -1;
 static int verbose_logging = 0;
 
 /* Verbose logging accessor for other modules */
-int (*is_verbose_logging_ptr)(void) = NULL;
-static int verbose_accessor(void) { return verbose_logging; }
+int is_verbose_logging(void) { return verbose_logging; }
 
 /* ============================================================================
  * HTTP Server
@@ -225,7 +224,6 @@ int main(int argc, char *argv[]) {
 
     /* Set up verbose logging */
     verbose_logging = global_config.verbose;
-    is_verbose_logging_ptr = verbose_accessor;
 
     /* Initialize RRD cache for LSRP mode */
     if (strcmp(global_config.protocol, "http") != 0) {

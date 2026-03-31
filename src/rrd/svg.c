@@ -15,12 +15,12 @@
 /* Static cache for JavaScript file contents */
 static char *js_cache = NULL;
 static long js_cache_len = 0;
-static int js_cache_initialized = 0;
+static volatile int js_cache_initialized = 0;
 static pthread_key_t js_context_key;
 static pthread_once_t key_once = PTHREAD_ONCE_INIT;
 
-/* Verbose logging accessor - implemented in main.c */
-extern int (*is_verbose_logging_ptr)(void);
+/* Verbose logging accessor - declared in cfg.h, implemented in main.c */
+extern int is_verbose_logging(void);
 
 /* Initialize thread-local context key (called once) */
 static void make_context_key(void) {
@@ -190,7 +190,7 @@ char* svg_generate(const char *script_path, MetricData *data, int width, int hei
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed_ms = (end.tv_sec - start.tv_sec) * 1000.0 + (end.tv_nsec - start.tv_nsec) / 1e6;
 
-    if (is_verbose_logging_ptr && is_verbose_logging_ptr()) {
+    if (is_verbose_logging()) {
         fprintf(stderr, "svg_generate took %.2f ms\n", elapsed_ms);
     }
 

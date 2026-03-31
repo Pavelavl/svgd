@@ -16,7 +16,7 @@ else
     CC = gcc
 endif
 
-CFLAGS   = -Ilsrp -Wall -Wextra -O2 -pthread
+CFLAGS   = -Ilsrp -Wall -Wextra -O2 -pthread -fstack-protector-strong -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security
 LIBS     = -lrrd -lduktape
 GATE_LIBS = -lcrypto -lssl
 
@@ -179,7 +179,7 @@ test-bench-svgd:
 
 test-bench: build-backend bench-docker-build bench-docker-up
 	@echo "=== Cross-System Benchmark (svgd vs RRDtool vs Graphite) ==="
-	REPO_ROOT="$(REPO_ROOT)" cd tests/internal/comparison && go run -tags docker .
+	REPO_ROOT="$(REPO_ROOT)" go run -C tests/internal/comparison -tags docker .
 
 bench-docker-build:
 	docker build -t benchmark-rrdtool tests/internal/comparison/docker/rrdtool/

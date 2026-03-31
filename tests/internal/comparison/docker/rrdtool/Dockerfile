@@ -7,7 +7,8 @@ RUN mkdir -p /usr/lib/cgi-bin /var/log/nginx /run/nginx /var/run
 COPY cgi/graph.cgi /usr/lib/cgi-bin/
 COPY nginx.conf /etc/nginx/http.d/default.conf
 
-RUN chmod +x /usr/lib/cgi-bin/graph.cgi
+RUN sed -i 's/\r$//' /usr/lib/cgi-bin/graph.cgi && \
+    chmod +x /usr/lib/cgi-bin/graph.cgi
 
 VOLUME /var/lib/collectd/rrd
 

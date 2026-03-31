@@ -21,8 +21,8 @@ import requests
 BASE_URL = os.environ.get("AUTH_TEST_URL", "http://localhost:8080")
 TIMEOUT = 10
 
-# Default test password (matches auth.example.json)
-TEST_PASSWORD = os.environ.get("AUTH_TEST_PASSWORD", "change_me_please")
+# Default test password (matches auth.json)
+TEST_PASSWORD = os.environ.get("AUTH_TEST_PASSWORD", "test123")
 
 
 @pytest.fixture(scope="module")
@@ -83,60 +83,39 @@ class TestLoginPage:
 class TestLoginEndpoint:
     """Test POST /_auth/login"""
 
-    def test_login_with_correct_password(self):
-        resp = requests.post(
-            f"{BASE_URL}/_auth/login",
-            json={"password": TEST_PASSWORD},
-            timeout=TIMEOUT,
-        )
-        if resp.status_code == 401:
-            pytest.skip("Auth not configured or password mismatch")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert "token" in data
-        assert len(data["token"]) > 0
+    def test_login_with_correct_password(self, auth_token):
+        """Login with correct password should return a valid JWT token.
+        Uses auth_token fixture (single login per module) to avoid flaky parallel requests."""
+        assert auth_token is not None
+        assert len(auth_token) > 0
 
-    def test_login_returns_json(self):
-        resp = requests.post(
-            f"{BASE_URL}/_auth/login",
-            json={"password": TEST_PASSWORD},
-            timeout=TIMEOUT,
-        )
-        if resp.status_code == 401:
-            pytest.skip("Auth not configured or password mismatch")
-        assert "application/json" in resp.headers.get("Content-Type", "")
-
-    def test_login_with_wrong_password(self):
+    def test_login_with_wrong_password(self, auth_token):
+        """Wrong password should return 401 (auth_token fixture confirms auth is configured)"""
         resp = requests.post(
             f"{BASE_URL}/_auth/login",
             json={"password": "definitely_wrong_password"},
             timeout=TIMEOUT,
         )
-        if resp.status_code == 401:
-            pytest.skip("Auth not configured")
-        # Either auth is off (skip above) or we expect 401
         assert resp.status_code == 401
         data = resp.json()
         assert "error" in data
 
-    def test_login_with_empty_password(self):
+    def test_login_with_empty_password(self, auth_token):
+        """Empty password should return 401"""
         resp = requests.post(
             f"{BASE_URL}/_auth/login",
             json={"password": ""},
             timeout=TIMEOUT,
         )
-        if resp.status_code == 401:
-            pytest.skip("Auth not configured")
         assert resp.status_code == 401
 
-    def test_login_without_body(self):
+    def test_login_without_body(self, auth_token):
+        """Missing body should return 401"""
         resp = requests.post(
             f"{BASE_URL}/_auth/login",
             headers={"Content-Type": "application/json"},
             timeout=TIMEOUT,
         )
-        if resp.status_code == 401:
-            pytest.skip("Auth not configured")
         assert resp.status_code == 401
 
     def test_login_get_method_not_allowed(self):

@@ -50,16 +50,25 @@ function showToast(message, type = 'info', duration = 3000) {
     const container = document.getElementById('toastContainer');
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
-    
-    const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
-    toast.innerHTML = `
-        <div style="font-size: 1.25rem;">${icon}</div>
-        <div style="flex-grow: 1;">${message}</div>
-        <button onclick="this.parentElement.remove()" style="cursor: pointer; opacity: 0.7;">✕</button>
-    `;
-    
+
+    const iconDiv = document.createElement('div');
+    iconDiv.style.fontSize = '1.25rem';
+    iconDiv.textContent = type === 'success' ? '✓' : type === 'error' ? '✕' : 'ℹ';
+
+    const msgDiv = document.createElement('div');
+    msgDiv.style.flexGrow = '1';
+    msgDiv.textContent = message;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.style.cssText = 'cursor: pointer; opacity: 0.7;';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', () => toast.remove());
+
+    toast.appendChild(iconDiv);
+    toast.appendChild(msgDiv);
+    toast.appendChild(closeBtn);
     container.appendChild(toast);
-    
+
     setTimeout(() => {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 300);
@@ -762,7 +771,17 @@ async function updatePanel(panelConfig) {
         }
         updateStatusIndicator(true);
     } else {
-        graphContainer.innerHTML = `<div class="error-message">Error: ${result.error}<br><small>Check if svgd-gateway is running on ${config.apiBaseUrl}</small></div>`;
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message';
+        const errorText = document.createElement('span');
+        errorText.textContent = 'Error: ' + result.error;
+        const errorHint = document.createElement('small');
+        errorHint.textContent = 'Check if svgd-gateway is running on ' + config.apiBaseUrl;
+        errorDiv.appendChild(errorText);
+        errorDiv.appendChild(document.createElement('br'));
+        errorDiv.appendChild(errorHint);
+        graphContainer.innerHTML = '';
+        graphContainer.appendChild(errorDiv);
         if (statusBadge) {
             statusBadge.className = 'badge badge-error';
             statusBadge.style.display = 'inline-block';

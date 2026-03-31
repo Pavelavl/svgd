@@ -823,13 +823,38 @@ int main(int argc, char *argv[]) {
             continue;
         }
 
-        // Read request
-        ssize_t bytes_read = recv(client_sock, buffer, sizeof(buffer) - 1, 0);
-        if (bytes_read <= 0) {
+        // Read full request (handle TCP fragmentation)
+        ssize_t total_read = 0;
+        while (total_read < (ssize_t)(sizeof(buffer) - 1)) {
+            ssize_t bytes_read = recv(client_sock, buffer + total_read,
+                                             sizeof(buffer) - 1 - total_read, 0);
+            if (bytes_read <= 0) break;
+            total_read += bytes_read;
+            buffer[total_read] = '\0';
+
+            // Check if we have the full request (HTTP headers end with \r\n\r\n)
+            if (total_read >= 4 && strstr(buffer, "\r\n\r\n")) {
+                // For POST requests, check if body is complete
+                char *content_len_str = strstr(buffer, "Content-Length:");
+                if (content_len_str) {
+                    long content_len = atol(content_len_str + 15);
+                    char *body_start = strstr(buffer, "\r\n\r\n");
+                    if (body_start) {
+                        size_t header_size = body_start - buffer + 4;
+                        if ((size_t)(total_read - (ssize_t)header_size) >= (size_t)content_len) {
+                            break; // Full body received
+                        }
+                    }
+                } else {
+                    break; // No body expected
+                }
+            }
+        }
+
+        if (total_read <= 0) {
             close(client_sock);
             continue;
         }
-        buffer[bytes_read] = '\0';
 
         // Extract path from request
         char *path = extract_path(buffer);

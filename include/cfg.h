@@ -54,4 +54,7 @@ MetricConfig* find_metric_config(Config *config, const char *endpoint_path);
 // Generate JSON list of available metrics
 char* generate_metrics_json(Config *config);
 
+// Check if verbose logging is enabled (defined in main.c)
+int is_verbose_logging(void);
+
 #endif

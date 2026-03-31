@@ -109,12 +109,16 @@ handler_result_t* handler_process(Config *config,
         char *height_str = handler_get_param(query, "height");
 
         if (width_str) {
-            svg_width = atoi(width_str);
+            char *endptr;
+            long val = strtol(width_str, &endptr, 10);
+            if (*endptr == '\0' && val > 0) svg_width = (int)val;
             free(width_str);
         }
 
         if (height_str) {
-            svg_height = atoi(height_str);
+            char *endptr;
+            long val = strtol(height_str, &endptr, 10);
+            if (*endptr == '\0' && val > 0) svg_height = (int)val;
             free(height_str);
         }
     }
@@ -188,7 +192,10 @@ handler_result_t* handler_process(Config *config,
         if (fresh_data) {
             if (use_cache) {
                 cache_put(rrd_path, period, fresh_data);
+                /* cache_put takes ownership of fresh_data; clone back for use */
                 data = cache_get(rrd_path, period);
+                /* If clone fails (OOM), the data is still in cache but we can't use it now.
+                   Next request will try cache_get again. */
             } else {
                 data = fresh_data;
             }

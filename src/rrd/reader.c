@@ -57,6 +57,7 @@ static unsigned long select_optimal_step(const char *filename, time_t start, tim
                 rras[rra_count].effective_step = rras[rra_count].pdp_per_row * base_step;
                 if (rras[rra_count].effective_step == 0 || rras[rra_count].effective_step > 1000000) {
                     free(rras[rra_count].cf);
+                    rras[rra_count].cf = NULL;
                     continue;
                 }
                 rra_count++;
@@ -125,7 +126,9 @@ static unsigned long select_optimal_step(const char *filename, time_t start, tim
 
     if (optimal_step == 0) optimal_step = min_step;
 
-    for (int i = 0; i < rra_count; i++) free(rras[i].cf);
+    for (int i = 0; i < rra_count; i++) {
+        if (rras[i].cf) free(rras[i].cf);
+    }
     rrd_info_free(info);
     return optimal_step;
 }

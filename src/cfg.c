@@ -143,9 +143,15 @@ Config load_config(duk_context *ctx, const char *filename) {
         return config;
     }
 
-    fread(json_code, 1, fsize, f);
-    json_code[fsize] = '\0';
+    size_t bytes_read = fread(json_code, 1, fsize, f);
+    json_code[bytes_read] = '\0';
     fclose(f);
+
+    if (bytes_read != (size_t)fsize) {
+        fprintf(stderr, "Warning: Could not read entire config file (%zu of %ld bytes)\n",
+                bytes_read, fsize);
+        /* Use what we have - partial read is better than nothing */
+    }
 
     duk_idx_t top = duk_get_top(ctx);
     duk_push_string(ctx, json_code);

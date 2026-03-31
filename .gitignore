@@ -4,6 +4,9 @@ vendor
 .venv
 .pytest_cache
 __pycache__
+.claude/
+.claude-flow/
+.mcp.json
 
 .infra/rrd-data
 datasources.json

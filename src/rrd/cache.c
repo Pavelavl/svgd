@@ -66,6 +66,24 @@ static MetricData* clone_metric_data(MetricData *src) {
         return NULL;
     }
 
+    /* Verify all allocations succeeded */
+    for (int i = 0; i < dst->series_count; i++) {
+        if (!dst->series_names[i] || !dst->series_data[i]) {
+            /* Cleanup partial allocations */
+            for (int j = 0; j < i; j++) {
+                free(dst->series_names[j]);
+                free(dst->series_data[j]);
+            }
+            if (i < dst->series_count && dst->series_names[i]) free(dst->series_names[i]);
+            free(dst->series_names);
+            free(dst->series_data);
+            free(dst->series_counts);
+            free(dst->param1);
+            free(dst);
+            return NULL;
+        }
+    }
+
     for (int i = 0; i < dst->series_count; i++) {
         dst->series_names[i] = strdup(src->series_names[i]);
         dst->series_counts[i] = src->series_counts[i];

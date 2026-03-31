@@ -10,6 +10,31 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
+/* Escape a string for safe embedding in a JSON string value.
+ * Returns number of characters written (excluding NUL). */
+static size_t http_json_escape(const char *src, char *dest, size_t dest_size) {
+    if (!src || !dest || dest_size == 0) return 0;
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j < dest_size - 1; i++) {
+        unsigned char c = src[i];
+        if (c == '"' || c == '\\') {
+            if (j < dest_size - 2) { dest[j++] = '\\'; dest[j++] = c; }
+        } else if (c == '\n') {
+            if (j < dest_size - 2) { dest[j++] = '\\'; dest[j++] = 'n'; }
+        } else if (c == '\r') {
+            if (j < dest_size - 2) { dest[j++] = '\\'; dest[j++] = 'r'; }
+        } else if (c == '\t') {
+            if (j < dest_size - 2) { dest[j++] = '\\'; dest[j++] = 't'; }
+        } else if (c < 0x20) {
+            if (j < dest_size - 7) j += snprintf(dest + j, dest_size - j, "\\u%04x", c);
+        } else {
+            dest[j++] = c;
+        }
+    }
+    dest[j] = '\0';
+    return j;
+}
+
 const char *http_status_text(int status) {
     switch (status) {
         case 200: return "OK";
@@ -108,7 +133,9 @@ char *http_build_response(const http_response_t *resp, size_t *out_len) {
 
 void http_send_error(int client_sock, int status, const char *message) {
     char body[512];
-    int body_len = snprintf(body, sizeof(body), "{\"error\":\"%s\"}", message);
+    char escaped[256];
+    http_json_escape(message, escaped, sizeof(escaped));
+    int body_len = snprintf(body, sizeof(body), "{\"error\":\"%s\"}", escaped);
 
     http_response_t resp = {0};
     resp.status = status;

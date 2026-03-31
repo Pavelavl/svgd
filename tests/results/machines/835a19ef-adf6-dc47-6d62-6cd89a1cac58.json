@@ -1,7 +1,7 @@
 {
   "machine_id": "835a19ef-adf6-dc47-6d62-6cd89a1cac58",
   "hostname": "megapc",
-  "collected_at": "2026-03-15T14:34:31.23735143Z",
+  "collected_at": "2026-03-31T20:06:57.41278563Z",
   "cpu": {
     "model": "Intel(R) Core(TM) i7-14700KF",
     "cores": 28,
@@ -13,7 +13,7 @@
   },
   "memory": {
     "total_mb": 15905,
-    "available_mb": 13797
+    "available_mb": 14607
   },
   "os": {
     "name": "Arch Linux",
