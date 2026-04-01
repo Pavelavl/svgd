@@ -502,17 +502,19 @@ jobs:
 
             GATE_DATASOURCES="/opt/svgd/datasources.json"
 
-            # Build datasources JSON using jq (avoids subshell variable issues)
-            DATASOURCES=$(echo "$SERVERS_CONFIG" | jq -r '
-              [.[] | {
-                name: (.host | split(".")[0]),
-                host: .host,
-                port: (.port // 8081)
-              }] | {
-                default: (.[0].name // ""),
-                datasources: .
-              }
-            ')
+            # Write jq filter to file to avoid GitHub Actions masking [] syntax
+            cat > /tmp/datasource_filter.jq << 'JQF'
+            [.[] | {
+              name: (.host | split(".")[0]),
+              host: .host,
+              port: (if .port then .port else 8081 end)
+            }] | {
+              default: (.[0].name // ""),
+              datasources: .
+            }
+            JQF
+
+            DATASOURCES=$(echo "$SERVERS_CONFIG" | jq -r -f /tmp/datasource_filter.jq)
 
             echo "New datasources:"
             echo "$DATASOURCES"
