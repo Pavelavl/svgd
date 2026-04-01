@@ -3,7 +3,7 @@
 		"tcp_port": 8081,
 		"protocol": "lsrp",
 		"allowed_ips": "127.0.0.1",
-		"rrdcached_addr": "unix:/var/run/rrdcached.sock",
+		"rrdcached_addr": "",
 		"thread_pool_size": 4,
 		"cache_ttl_seconds": 5,
 		"verbose": 0
@@ -22,8 +22,7 @@
 			"title": "CPU Utilization",
 			"y_label": "Usage (%)",
 			"is_percentage": true,
-			"value_format": "%.1f",
-			"panel_type": "stat"
+			"value_format": "%.1f"
 		},
 		{
 			"endpoint": "cpu/process",
@@ -43,8 +42,7 @@
 			"title": "RAM Utilization",
 			"y_label": "Usage (%)",
 			"is_percentage": true,
-			"value_format": "%.1f",
-			"panel_type": "stat"
+			"value_format": "%.1f"
 		},
 		{
 			"endpoint": "ram/process",
@@ -56,8 +54,7 @@
 			"value_format": "%.1f",
 			"param_name": "process_name",
 			"transform_type": "divide",
-			"transform_divisor": 1048576,
-			"panel_type": "stat"
+			"transform_divisor": 1048576
 		},
 		{
 			"endpoint": "network",
@@ -108,8 +105,7 @@
 			"is_percentage": false,
 			"value_format": "%.1f",
 			"transform_type": "divide",
-			"transform_divisor": 3600,
-			"panel_type": "stat"
+			"transform_divisor": 3600
 		},
 		{
 			"endpoint": "swap/bytes",
@@ -132,8 +128,7 @@
 			"value_format": "%.2f",
 			"param_name": "mount_point",
 			"transform_type": "divide",
-			"transform_divisor": 1073741824,
-			"panel_type": "stat"
+			"transform_divisor": 1073741824
 		},
 		{
 			"endpoint": "filesystem/free",
@@ -145,8 +140,7 @@
 			"value_format": "%.2f",
 			"param_name": "mount_point",
 			"transform_type": "divide",
-			"transform_divisor": 1073741824,
-			"panel_type": "stat"
+			"transform_divisor": 1073741824
 		},
 		{
 			"endpoint": "ram/cached",
@@ -155,8 +149,7 @@
 			"title": "Cached Memory",
 			"y_label": "Usage (%)",
 			"is_percentage": true,
-			"value_format": "%.1f",
-			"panel_type": "stat"
+			"value_format": "%.1f"
 		},
 		{
 			"endpoint": "ram/buffered",
@@ -165,8 +158,7 @@
 			"title": "Buffered Memory",
 			"y_label": "Usage (%)",
 			"is_percentage": true,
-			"value_format": "%.1f",
-			"panel_type": "stat"
+			"value_format": "%.1f"
 		},
 		{
 			"endpoint": "swap/percent",
@@ -175,8 +167,7 @@
 			"title": "Swap Utilization",
 			"y_label": "Usage (%)",
 			"is_percentage": true,
-			"value_format": "%.1f",
-			"panel_type": "stat"
+			"value_format": "%.1f"
 		},
 		{
 			"endpoint": "disk/throughput",
@@ -228,8 +219,7 @@
 			"y_label": "Processes",
 			"is_percentage": false,
 			"value_format": "%d",
-			"param_name": "process_name",
-			"panel_type": "stat"
+			"param_name": "process_name"
 		},
 		{
 			"endpoint": "tcp/connections",
@@ -238,8 +228,7 @@
 			"title": "TCP Established Connections",
 			"y_label": "Connections",
 			"is_percentage": false,
-			"value_format": "%d",
-			"panel_type": "stat"
+			"value_format": "%d"
 		},
 		{
 			"endpoint": "tcp/time_wait",
@@ -248,8 +237,7 @@
 			"title": "TCP TIME_WAIT Connections",
 			"y_label": "Connections",
 			"is_percentage": false,
-			"value_format": "%d",
-			"panel_type": "stat"
+			"value_format": "%d"
 		},
 		{
 			"endpoint": "thermal",

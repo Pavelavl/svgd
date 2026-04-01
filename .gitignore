@@ -12,6 +12,8 @@ __pycache__
 datasources.json
 config.json
 settings.local.json
+# for symlink
+scripts
 
 *.md
 docs/

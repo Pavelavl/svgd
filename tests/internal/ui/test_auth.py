@@ -22,7 +22,7 @@ BASE_URL = os.environ.get("AUTH_TEST_URL", "http://localhost:8080")
 TIMEOUT = 10
 
 # Default test password (matches auth.json)
-TEST_PASSWORD = os.environ.get("AUTH_TEST_PASSWORD", "test123")
+TEST_PASSWORD = os.environ.get("AUTH_TEST_PASSWORD", "change_me_please")
 
 
 @pytest.fixture(scope="module")

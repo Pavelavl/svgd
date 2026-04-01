@@ -20,7 +20,7 @@ import time
 BASE_URL = "http://localhost:8080"
 BACKEND_URL = "http://localhost:8081"
 TIMEOUT = 10
-TEST_PASSWORD = os.environ.get("AUTH_TEST_PASSWORD", "test123")
+TEST_PASSWORD = os.environ.get("AUTH_TEST_PASSWORD", "change_me_please")
 
 
 @pytest.fixture(scope="module")
