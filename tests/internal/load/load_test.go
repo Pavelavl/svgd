@@ -691,13 +691,13 @@ func Test_BenchmarkDirectVsCached(t *testing.T) {
 				t.Fatalf("Load test failed: %v", err)
 			}
 
-			bc.StopMetricsCollector()
-			time.Sleep(2 * time.Second)
-
 			metrics, err := bc.AnalyzeMetrics()
 			if err != nil {
 				t.Logf("Warning: Failed to analyze metrics: %v", err)
 			}
+
+			bc.StopMetricsCollector()
+			time.Sleep(2 * time.Second)
 
 			result.TestName = tt.name
 
