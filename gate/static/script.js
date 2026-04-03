@@ -458,11 +458,29 @@ function updateDatasourceDropdown() {
 }
 
 function selectDatasource(name) {
+    // Save current panels for the old datasource
+    savePanelsToStorage();
+
     config.activeDatasource = name;
     localStorage.setItem('svgd-active-datasource', name);
     updateDatasourceDropdown();
     closeDropdown('datasourceDropdown');
-    updateAllPanels();
+
+    // Load panels for the new datasource
+    const key = getPanelsStorageKey(name);
+    const savedPanels = localStorage.getItem(key);
+    if (savedPanels) {
+        try {
+            config.panels = JSON.parse(savedPanels);
+        } catch (e) {
+            config.panels = [...defaultPanels];
+        }
+    } else {
+        config.panels = [...defaultPanels];
+    }
+
+    renderPanels();
+    updatePanelCount();
     fetchAvailableMetrics();
     showToast(`Switched to "${name}"`, 'info');
 }
@@ -892,16 +910,15 @@ async function initializeDashboard() {
     // Then load metrics
     await fetchAvailableMetrics();
 
-    const savedPanels = localStorage.getItem('svgd-panels');
     const savedConfig = localStorage.getItem('svgd-config');
-    
+
     if (savedConfig) {
         try {
             const parsed = JSON.parse(savedConfig);
             config.apiBaseUrl = parsed.apiBaseUrl || config.apiBaseUrl;
             config.refreshInterval = parsed.refreshInterval || config.refreshInterval;
             config.dashboardName = parsed.dashboardName || config.dashboardName;
-            
+
             document.getElementById('apiBaseUrl').value = config.apiBaseUrl;
             document.getElementById('refreshInterval').value = config.refreshInterval;
             document.getElementById('dashboardName').value = config.dashboardName;
@@ -910,13 +927,27 @@ async function initializeDashboard() {
             console.error('Failed to load config:', e);
         }
     }
-    
-    if (savedPanels) {
+
+    // Load panels for the active datasource (or migrate from legacy key)
+    const dsKey = getPanelsStorageKey(config.activeDatasource);
+    const dsPanels = localStorage.getItem(dsKey);
+    const legacyPanels = localStorage.getItem('svgd-panels');
+
+    if (dsPanels) {
         try {
-            config.panels = JSON.parse(savedPanels);
+            config.panels = JSON.parse(dsPanels);
         } catch (e) {
             config.panels = [...defaultPanels];
         }
+    } else if (legacyPanels) {
+        // Migrate old single-key panels to the current datasource
+        try {
+            config.panels = JSON.parse(legacyPanels);
+        } catch (e) {
+            config.panels = [...defaultPanels];
+        }
+        savePanelsToStorage();
+        localStorage.removeItem('svgd-panels');
     } else {
         config.panels = [...defaultPanels];
     }
@@ -926,8 +957,13 @@ async function initializeDashboard() {
     startRefreshTimer();
 }
 
+function getPanelsStorageKey(datasource) {
+    return 'svgd-panels-' + (datasource || 'default');
+}
+
 function savePanelsToStorage() {
-    localStorage.setItem('svgd-panels', JSON.stringify(config.panels));
+    const key = getPanelsStorageKey(config.activeDatasource);
+    localStorage.setItem(key, JSON.stringify(config.panels));
 }
 
 function saveConfigToStorage() {
