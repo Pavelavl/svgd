@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <sys/time.h>
 #include "../lsrp/lsrp_client.h"
 #include "auth/auth.h"
 
@@ -17,6 +18,7 @@
 #define MAX_REQUEST_LEN 8192
 #define MAX_PARAMS_LEN LSRP_MAX_PARAMS_LEN
 #define MAX_FILE_SIZE (1024 * 1024)  // 1MB max for static files
+#define CLIENT_RECV_TIMEOUT_SEC 5    // Timeout for client recv (seconds)
 
 // Datasource configuration
 #define MAX_DATASOURCES 16
@@ -822,6 +824,10 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Failed to accept connection: %s\n", strerror(errno));
             continue;
         }
+
+        // Set recv timeout to prevent blocking forever on idle clients
+        struct timeval tv = { .tv_sec = CLIENT_RECV_TIMEOUT_SEC, .tv_usec = 0 };
+        setsockopt(client_sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
         // Read full request (handle TCP fragmentation)
         ssize_t total_read = 0;
