@@ -1,60 +1,78 @@
 # svgd
 
+A lightweight C monitoring system that renders SVG charts from RRD time-series files — ~0% CPU and ~10 MB RAM under load.
+
+[![CI](https://img.shields.io/github/actions/workflow/status/Pavelavl/svgd/test.yml?branch=master&label=CI)](https://github.com/Pavelavl/svgd/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Language: C](https://img.shields.io/badge/language-C-00599C.svg)](https://en.wikipedia.org/wiki/C_(programming_language))
+[![Made with ❤](https://img.shields.io/badge/made%20with-%E2%9D%A4-red.svg)](#)
+
+> 🇬🇧 English | [🇷🇺 Русский](readme.ru.md)
+
 <img src="examples/menu.png" width="600"/>
 
-Легковесная система мониторинга с динамической конфигурацией метрик.
+## Why svgd?
 
-**Компоненты:**
-- **svgd** — LSRP-сервер для генерации SVG-графиков из RRD-файлов
-- **svgd-gate** — HTTP-шлюз с веб-интерфейсом
-- **collectd** — сбор системных метрик (внешний компонент)
+- **Extreme resource efficiency** — handles up to **2830 RPS** at **~0% CPU** and **~10 MB RAM**. Graphite under comparable load uses 70% CPU and 241 MB RAM (**24x** more memory); RRDtool CGI is **28–58x slower** in RPS.
+- **Embeddable, zero-dependency SVG output** — every endpoint returns a self-contained SVG chart you can drop into any page with a single `<img>` or inline `<svg>`. No client-side JS or bundler required.
+- **JS-extensible rendering** — charts are produced by an embedded Duktape engine running `src/scripts/generate_svg.js`, so you change chart appearance or behavior by editing JavaScript — no C recompile needed.
+- **Data-driven metrics via `config.json`** — map any `endpoint` to an `rrd_path` (with `%s` URL parameters for per-process / per-interface charts) without touching code.
+- **Multi-datasource routing** — `svgd-gate` fronts one or many `svgd` backends and selects the target from a `?datasource=` query param (see `datasources.json` and `docker-compose.multi.yml`).
 
 ---
 
-## Установка
+## Components
 
-### Требования
+- **svgd** — LSRP/HTTP server that renders SVG charts from RRD files
+- **svgd-gate** — HTTP gateway with a web UI
+- **collectd** — collects system metrics (external component)
 
-- **librrd-dev** — библиотека для работы с RRD-файлами
-- **libduktape-dev** — JS-движок Duktape для генерации SVG
-- **gcc** — компилятор C
-- **collectd** — сбор системных метрик
-- **jq** — (опционально) для парсинга config.json в Makefile
+---
 
-### Установка зависимостей
+## Installation
+
+### Requirements
+
+- **librrd-dev** — library for working with RRD files
+- **duktape-dev** — Duktape JS engine for SVG generation
+- **gcc** — C compiler
+- **collectd** — system metrics collection
+- **jq** — (optional) for parsing `config.json` in the Makefile
+
+### Installing dependencies
 
 ```bash
 sudo apt update
-sudo apt install librrd-dev libduktape-dev gcc jq
+sudo apt install librrd-dev duktape-dev gcc jq
 ```
 
-### Сборка
+### Build
 
 ```bash
-# Сборка всех компонентов
+# Build all components
 make build
 
-# Только backend (LSRP-сервер)
+# Backend only (LSRP server)
 make build-backend
 ```
 
-### Запуск
+### Run
 
 ```bash
-# HTTP-шлюз с веб-интерфейсом (порт 8080)
+# HTTP gateway with web UI (port 8080)
 make run
 
-# Только LSRP-сервер (порт из config.json, по умолчанию 8081)
+# LSRP server only (port from config.json, default 8081)
 make run-backend
 ```
 
-После запуска откройте http://localhost:8080 в браузере.
+After starting it, open http://localhost:8080 in your browser.
 
 ---
 
-## Конфигурация
+## Configuration
 
-### Структура config.json
+### config.json structure
 
 ```json
 {
@@ -73,46 +91,46 @@ make run-backend
   "js": {
     "script_path": "./scripts/generate_svg.js"
   },
-  "metrics": [ /* массив метрик */ ]
+  "metrics": [ /* array of metrics */ ]
 }
 ```
 
-### Параметры сервера
+### Server parameters
 
-| Параметр | Описание | По умолчанию |
+| Parameter | Description | Default |
 |----------|----------|--------------|
-| `tcp_port` | Порт LSRP-сервера | 8081 |
-| `allowed_ips` | Разрешённые IP (через запятую) | 127.0.0.1 |
-| `rrdcached_addr` | Адрес rrdcached (unix:/path или host:port) | "" |
-| `thread_pool_size` | Размер пула потоков | 4 |
-| `cache_ttl_seconds` | TTL кэша RRD-данных | 5 |
-| `verbose` | Уровень логирования | 0 |
+| `tcp_port` | LSRP server port | 8081 |
+| `allowed_ips` | Allowed IPs (comma-separated) | 127.0.0.1 |
+| `rrdcached_addr` | rrdcached address (unix:/path or host:port) | "" |
+| `thread_pool_size` | Thread pool size | 4 |
+| `cache_ttl_seconds` | TTL for cached RRD data | 5 |
+| `verbose` | Logging level | 0 |
 
-### Конфигурация метрик
+### Metrics configuration
 
-#### Обязательные параметры
+#### Required parameters
 
-| Параметр | Описание |
+| Parameter | Description |
 |----------|----------|
-| `endpoint` | URL путь для доступа |
-| `rrd_path` | Путь к RRD-файлу (относительно base_path) |
+| `endpoint` | URL path used to access the metric |
+| `rrd_path` | Path to the RRD file (relative to `base_path`) |
 
-#### Опциональные параметры
+#### Optional parameters
 
-| Параметр | Описание |
+| Parameter | Description |
 |----------|----------|
-| `requires_param` | Требуется ли параметр в URL |
-| `param_name` | Имя параметра (для UI) |
-| `title` | Заголовок графика (поддерживает `%s`) |
-| `y_label` | Подпись оси Y |
-| `is_percentage` | Метрика в процентах (0-100%) |
-| `transform_type` | Тип трансформации: `none`, `divide`, `sum`, `multiply` |
-| `transform_divisor` | Делитель для трансформации (`divide`) |
-| `value_format` | Формат вывода (printf-style) |
+| `requires_param` | Whether a URL parameter is required |
+| `param_name` | Parameter name (shown in the UI) |
+| `title` | Chart title (supports `%s`) |
+| `y_label` | Y-axis label |
+| `is_percentage` | Metric is a percentage (0–100%) |
+| `transform_type` | Transform type: `none`, `divide`, `sum`, `multiply` |
+| `transform_divisor` | Divisor for the transform (`divide`) |
+| `value_format` | Output format (printf-style) |
 
-#### Примеры метрик
+#### Metric examples
 
-**CPU (простая метрика):**
+**CPU (simple metric):**
 ```json
 {
   "endpoint": "cpu",
@@ -124,7 +142,7 @@ make run-backend
 }
 ```
 
-**Память процесса (с параметром и трансформацией):**
+**Process memory (with parameter and transform):**
 ```json
 {
   "endpoint": "ram/process",
@@ -139,7 +157,7 @@ make run-backend
 }
 ```
 
-**Сеть (с параметром):**
+**Network (with parameter):**
 ```json
 {
   "endpoint": "network",
@@ -160,30 +178,30 @@ make run-backend
 
 ### HTTP REST API (svgd-gate)
 
-**Получить список метрик:**
+**Get the list of metrics:**
 ```bash
 GET http://localhost:8080/_config/metrics
 ```
 
-**Получить SVG-график:**
+**Get an SVG chart:**
 ```bash
 GET http://localhost:8080/<endpoint>?period=<seconds>
 ```
 
-Параметр `period` — временной диапазон в секундах (по умолчанию 3600).
+The `period` parameter is the time range in seconds (default 3600).
 
-**Примеры:**
+**Examples:**
 ```bash
-# CPU за последний час
+# CPU over the last hour
 curl http://localhost:8080/cpu
 
-# CPU за 24 часа
+# CPU over 24 hours
 curl http://localhost:8080/cpu?period=86400
 
-# Память процесса
+# Process memory
 curl http://localhost:8080/ram/process/postgres
 
-# Сетевой трафик
+# Network traffic
 curl http://localhost:8080/network/eth0?period=7200
 ```
 
@@ -193,7 +211,7 @@ curl http://localhost:8080/network/eth0?period=7200
 ./lsrp/bin/lsrp localhost:8081 "endpoint=<endpoint>&period=<seconds>"
 ```
 
-**Примеры:**
+**Examples:**
 ```bash
 ./lsrp/bin/lsrp localhost:8081 "endpoint=cpu&period=3600"
 ./lsrp/bin/lsrp localhost:8081 "endpoint=ram/process/systemd&period=7200"
@@ -201,199 +219,199 @@ curl http://localhost:8080/network/eth0?period=7200
 
 ---
 
-## Примеры метрик
+## Metric examples
 
-| Endpoint | Описание | Параметр | Пример |
+| Endpoint | Description | Parameter | Example |
 |----------|----------|----------|--------|
-| `cpu` | Загрузка CPU (%) | — | [cpu.svg](examples/cpu.svg) |
-| `cpu/process/<name>` | CPU time процесса (s) | process_name | [cpu_process_systemd.svg](examples/cpu_process_systemd.svg) |
-| `ram` | Использование памяти (%) | — | [ram.svg](examples/ram.svg) |
-| `ram/process/<name>` | Память процесса (MB) | process_name | [ram_process_systemd.svg](examples/ram_process_systemd.svg) |
-| `ram/cached` | Кэшированная память (%) | — | — |
-| `ram/buffered` | Буферизованная память (%) | — | — |
-| `network/<iface>` | Сетевой трафик (Mbit/s) | interface | [network.svg](examples/network.svg) |
-| `network/packets/<iface>` | Сетевые пакеты (packets/s) | interface | — |
-| `network/errors/<iface>` | Ошибки сети (errors/s) | interface | — |
-| `disk/<disk>` | Дисковые операции (ops/s) | disk | [disk.svg](examples/disk.svg) |
-| `disk/throughput/<disk>` | Пропускная способность диска (MB/s) | disk | — |
-| `disk/io_time/<disk>` | Время I/O диска (ms) | disk | — |
-| `postgresql/connections` | Подключения к PostgreSQL | — | [pgsql.svg](examples/pgsql.svg) |
+| `cpu` | CPU usage (%) | — | [cpu.svg](examples/cpu.svg) |
+| `cpu/process/<name>` | Process CPU time (s) | process_name | [cpu_process_systemd.svg](examples/cpu_process_systemd.svg) |
+| `ram` | Memory usage (%) | — | [ram.svg](examples/ram.svg) |
+| `ram/process/<name>` | Process memory (MB) | process_name | [ram_process_systemd.svg](examples/ram_process_systemd.svg) |
+| `ram/cached` | Cached memory (%) | — | — |
+| `ram/buffered` | Buffered memory (%) | — | — |
+| `network/<iface>` | Network traffic (Mbit/s) | interface | [network.svg](examples/network.svg) |
+| `network/packets/<iface>` | Network packets (packets/s) | interface | — |
+| `network/errors/<iface>` | Network errors (errors/s) | interface | — |
+| `disk/<disk>` | Disk operations (ops/s) | disk | [disk.svg](examples/disk.svg) |
+| `disk/throughput/<disk>` | Disk throughput (MB/s) | disk | — |
+| `disk/io_time/<disk>` | Disk I/O time (ms) | disk | — |
+| `postgresql/connections` | PostgreSQL connections | — | [pgsql.svg](examples/pgsql.svg) |
 | `system/load` | Load average | — | — |
-| `system/uptime` | Uptime системы (hours) | — | — |
-| `swap/bytes` | Использование swap (MB) | — | — |
-| `swap/percent` | Использование swap (%) | — | — |
-| `filesystem/<mount>` | Использование ФС (GB) | mount_point | — |
-| `filesystem/free/<mount>` | Свободное место на ФС (GB) | mount_point | — |
-| `process/count/<name>` | Количество процессов | process_name | — |
-| `tcp/connections` | TCP ESTABLISHED соединения | — | — |
-| `tcp/time_wait` | TCP TIME_WAIT соединения | — | — |
-| `thermal` | Температура CPU (°C) | — | — |
+| `system/uptime` | System uptime (hours) | — | — |
+| `swap/bytes` | Swap usage (MB) | — | — |
+| `swap/percent` | Swap usage (%) | — | — |
+| `filesystem/<mount>` | Filesystem usage (GB) | mount_point | — |
+| `filesystem/free/<mount>` | Filesystem free space (GB) | mount_point | — |
+| `process/count/<name>` | Process count | process_name | — |
+| `tcp/connections` | TCP ESTABLISHED connections | — | — |
+| `tcp/time_wait` | TCP TIME_WAIT connections | — | — |
+| `thermal` | CPU temperature (°C) | — | — |
 
 ---
 
-## Веб-интерфейс
+## Web interface
 
-### Возможности
+### Features
 
-- Динамическое добавление панелей из списка метрик
-- Настройка временного диапазона (5 мин — 7 дней)
-- Автообновление с настраиваемым интервалом
-- Поиск и фильтрация панелей
-- Полноэкранный режим
-- Экспорт SVG-графиков
-- Светлая и тёмная тема
-- Экспорт/импорт конфигурации дашборда
-- Снимки дашборда (HTML со всеми графиками)
+- Add panels dynamically from the metrics list
+- Configurable time range (5 min — 7 days)
+- Auto-refresh with a configurable interval
+- Panel search and filtering
+- Fullscreen mode
+- SVG chart export
+- Light and dark themes
+- Dashboard config export/import
+- Dashboard snapshots (HTML with all charts)
 
-### Горячие клавиши
+### Hotkeys
 
-- `Esc` — закрыть модальные окна
+- `Esc` — close modal windows
 
 ---
 
-## Авторизация
+## Authorization
 
-### Обзор
+### Overview
 
-svgd-gate поддерживает токен-based авторизацию с использованием JWT-подобных токенов, подписанных HMAC-SHA256.
+svgd-gate supports token-based authorization using JWT-like tokens signed with HMAC-SHA256.
 
-### Настройка
+### Setup
 
-1. Создайте `gate/auth/auth.json` из примера:
+1. Create `gate/auth/auth.json` from the example:
 
 ```bash
 cp auth.example.json gate/auth/auth.json
 ```
 
-2. Отредактируйте `gate/auth/auth.json`:
+2. Edit `gate/auth/auth.json`:
 
 ```json
 {
-  "password": "ваш_надёжный_пароль",
-  "jwt_secret": "случайный_секрет_минимум_32_символа",
+  "password": "your_strong_password",
+  "jwt_secret": "random_secret_at_least_32_characters",
   "token_expiry_days": 7
 }
 ```
 
-3. Перезапустите svgd-gate
+3. Restart svgd-gate
 
-### Конфигурация
+### Configuration
 
-- `password`: Пароль для получения токена (минимум 1 символ, рекомендуется 8+)
-- `jwt_secret`: Секретный ключ для подписи токенов (минимум 32 символа, используйте случайную строку)
-- `token_expiry_days`: Срок действия токена в днях (по умолчанию: 7)
+- `password`: Password used to obtain a token (minimum 1 character, 8+ recommended)
+- `jwt_secret`: Secret key for signing tokens (minimum 32 characters; use a random string)
+- `token_expiry_days`: Token lifetime in days (default: 7)
 
-### Безопасность
+### Security
 
-- `auth.json` содержит секреты и НЕ должен коммититься в систему контроля версий
-- Установите права доступа: `chmod 600 gate/auth/auth.json`
-- Используйте надёжные случайно сгенерированные пароли и секреты
-- Рекомендуется использовать HTTPS в production
-- Токены хранятся в localStorage на клиенте
+- `auth.json` contains secrets and must NOT be committed to version control
+- Set its permissions: `chmod 600 gate/auth/auth.json`
+- Use strong, randomly generated passwords and secrets
+- HTTPS is recommended in production
+- Tokens are stored in `localStorage` on the client
 
-### Использование
+### Usage
 
-Пользователи получают доступ к дашборду по адресу `/index.html`. Если не авторизованы, они перенаправляются на `/login.html` для ввода пароля. После успешной авторизации выдаётся JWT токен, который сохраняется в localStorage. Все API запросы включают этот токен в заголовке `Authorization: Bearer <token>`.
+Users reach the dashboard at `/index.html`. If they are not authorized, they are redirected to `/login.html` to enter a password. After successful authentication a JWT token is issued and stored in `localStorage`. Every API request includes this token in the `Authorization: Bearer <token>` header.
 
-Токены истекают после настроенного количества дней, после чего требуется повторная авторизация.
+Tokens expire after the configured number of days, after which re-authentication is required.
 
-### API эндпоинты
+### API endpoints
 
-- `POST /_auth/login` — Получить токен по паролю
-- Все остальные эндпоинты требуют валидный токен в заголовке Authorization
-- Статические файлы (HTML, JS, CSS) доступны публично
+- `POST /_auth/login` — obtain a token by password
+- All other endpoints require a valid token in the `Authorization` header
+- Static files (HTML, JS, CSS) are served publicly
 
-Подробная документация: [gate/auth/README.md](gate/auth/README.md)
-
----
-
-## Производительность
-
-Подробные результаты и динамика развития — в разделе [Эволюция](#эволюция) и [Сравнение с аналогами](#сравнение-с-аналогами-детально).
+Detailed documentation: [gate/auth/README.md](gate/auth/README.md)
 
 ---
 
-## Эволюция
+## Performance
 
-Бенчмарки проводились на двух машинах
+For detailed results and the development trajectory, see the [Evolution](#evolution) and [Comparison with analogues (detailed)](#comparison-with-analogues-detailed) sections.
 
-### Пропускная способность svgd (RPS) на megapc (i7-14700KF, 28 ядер)
+---
 
-| Дата | Light (c=1) | Medium (c=10) | Heavy (c=50) | CPU (light) |
+## Evolution
+
+Benchmarks were run on two machines.
+
+### svgd throughput (RPS) on megapc (i7-14700KF, 28 cores)
+
+| Date | Light (c=1) | Medium (c=10) | Heavy (c=50) | CPU (light) |
 |------|-------------|---------------|--------------|-------------|
 | 14.03 | 467 | 579 | 578 | 1.3% |
 | 31.03 | 896 | 1407 | 1425 | 0.8% |
 | 01.04 | **1347** | **2737** | **2830** | **~0%** |
 
-- Рост throughput за 18 дней: **~3x (light)** до **~5x (heavy)**
-- Задержка при c=50 упала с ~110 ms до ~4 ms (**~28x**)
-- CPU при лёгкой нагрузке упал с 1.3% до ~0% — система почти не тратит ресурсы
-- Память стабильно ~7-11 MB во всех сценариях
+- Throughput growth over 18 days: **~3x (light)** to **~5x (heavy)**
+- Latency at c=50 dropped from ~110 ms to ~4 ms (**~28x**)
+- CPU under light load dropped from 1.3% to ~0% — the system barely consumes any resources
+- Memory is a stable ~7–11 MB across all scenarios
 
-### Сравнение с аналогами (01.04, megapc)
+### Comparison with analogues (01.04, megapc)
 
-| Метрика | svgd | Graphite | RRDtool CGI |
+| Metric | svgd | Graphite | RRDtool CGI |
 |---------|------|----------|-------------|
 | **RPS (light)** | **1347** | 320 | 48 |
 | **RPS (heavy)** | **2830** | 1485 | 48 |
 | **Latency P99 (light)** | **1.1 ms** | 3.7 ms | 22.4 ms |
 | **CPU (light)** | **~0%** | 70% | 110% |
-| **Память** | **~10 MB** | 241 MB | 36 MB |
+| **Memory** | **~10 MB** | 241 MB | 36 MB |
 
-### Ключевые киллер-фичи
+### Key killer features
 
-1. **Крайне низкое потребление ресурсов** — svgd обрабатывает до 2830 RPS при ~0% CPU и ~10 MB памяти. Graphite при сопоставимой нагрузке использует 70% CPU и 241 MB RAM (в **24 раза** больше памяти).
+1. **Extremely low resource consumption** — svgd handles up to 2830 RPS at ~0% CPU and ~10 MB of memory. Graphite under comparable load uses 70% CPU and 241 MB RAM (**24x** more memory).
 
-2. **Линейное масштабирование** — throughput растёт пропорционально concurrency: от 1347 RPS (c=1) до 2830 RPS (c=50). При этом задержка почти не деградирует: 0.7 ms → 3.5 ms.
+2. **Linear scaling** — throughput grows proportionally with concurrency: from 1347 RPS (c=1) to 2830 RPS (c=50). Latency barely degrades: 0.7 ms → 3.5 ms.
 
-3. **Порядки превосходства над RRDtool CGI** — svgd в **28-58 раз быстрее** по RPS, при этом RRDtool потребляет 110% CPU (т.е. упирается в потолок одного ядра) и 3.5x больше памяти.
+3. **Orders of magnitude over RRDtool CGI** — svgd is **28–58x faster** in RPS, while RRDtool consumes 110% CPU (i.e. it is bottlenecked by a single core) and 3.5x more memory.
 
-4. **Быстрая эволюция** — за 18 дней разработки throughput вырос в **3-5 раз**, а задержка под высокой нагрузкой упала в **28 раз** — продукт активно оптимизируется.
+4. **Fast evolution** — over 18 days of development, throughput grew **3–5x** and latency under high load dropped **28x** — the product is being actively optimized.
 
-5. **Энергоэффективность** — svgd генерирует SVG-графики из RRD-файлов, потребляя на порядок меньше ресурсов, чем аналоги. Идеально подходит для встраивания в слабое железо и IoT.
+5. **Energy efficient** — svgd generates SVG charts from RRD files while consuming an order of magnitude fewer resources than the alternatives. Ideal for embedding into low-power hardware and IoT.
 
 ---
 
-## Сравнение с аналогами (детально)
+## Comparison with analogues (detailed)
 
-Сравнение производительности svgd с RRDtool CGI и Graphite при генерации SVG-графиков.
-Данные от 01.04.2026, машина megapc (i7-14700KF, 28 ядер, 15 GB RAM, Arch Linux).
+Performance comparison of svgd with RRDtool CGI and Graphite when generating SVG charts.
+Data from 01.04.2026, machine megapc (i7-14700KF, 28 cores, 15 GB RAM, Arch Linux).
 
-**Конфигурация теста:** 1000 запросов, период 3600 сек (1 час данных)
+**Test configuration:** 1000 requests, period 3600 sec (1 hour of data)
 
-#### Пропускная способность (RPS)
+#### Throughput (RPS)
 
-| Система | Light (c=1) | Medium (c=10) | Heavy (c=50) |
+| System | Light (c=1) | Medium (c=10) | Heavy (c=50) |
 |---------|-------------|---------------|--------------|
 | **svgd** | **1347** | **2737** | **2830** |
 | **Graphite** | 320 | 1488 | 1485 |
 | **RRDtool CGI** | 48 | 48 | 48 |
 
-#### Задержка P99 (ms)
+#### Latency P99 (ms)
 
-| Система | Light (c=1) | Medium (c=10) | Heavy (c=50) |
+| System | Light (c=1) | Medium (c=10) | Heavy (c=50) |
 |---------|-------------|---------------|--------------|
 | **svgd** | **1.1** | **5.5** | **18.6** |
 | **Graphite** | 3.7 | 8.1 | 35.9 |
 | **RRDtool CGI** | 22.4 | 215.4 | 1080.0 |
 
-#### Ресурсы: CPU (%)
+#### Resources: CPU (%)
 
-| Система | Light | Medium | Heavy |
+| System | Light | Medium | Heavy |
 |---------|-------|--------|-------|
 | **svgd** | **~0%** | **~0%** | **~0%** |
 | **Graphite** | 70% | 0.2% | 0.2% |
 | **RRDtool CGI** | 110% | 110% | 110% |
 
-#### Ресурсы: Память (MB)
+#### Resources: Memory (MB)
 
-| Система | Light | Medium | Heavy |
+| System | Light | Medium | Heavy |
 |---------|-------|--------|-------|
 | **svgd** | **~10** | **~10** | **~10** |
 | **Graphite** | 241 | 241 | 241 |
 | **RRDtool CGI** | 36 | 35 | 38 |
 
-### Графики сравнения
+### Comparison charts
 
 <p align="center">
   <img src="tests/results/charts/output/throughput_comparison.png" width="600"/>
@@ -407,34 +425,34 @@ cp auth.example.json gate/auth/auth.json
   <img src="tests/results/charts/output/memory_usage.png" width="600"/>
 </p>
 
-### Выводы
+### Conclusions
 
-- **svgd vs RRDtool CGI**: svgd в **28-58 раз быстрее** по RPS, задержка в **20-58 раз ниже**, память в **3.5x меньше**
-- **svgd vs Graphite**: svgd в **4.2x быстрее** при лёгкой нагрузке (1347 vs 320 RPS), при этом Graphite использует **24x больше памяти** (241 MB vs 10 MB) и 70% CPU
-- **RRDtool CGI**: Не масштабируется вообще — 48 RPS при любой нагрузке, CPU упирается в 110% (потолок одного ядра), задержка растёт до 1080 ms
-- **Graphite**: Хорошо масштабируется по throughput, но требует 241 MB RAM даже без нагрузки
-- **svgd**: Единственная система с ~0% CPU при всех нагрузках и минимальным потреблением памяти (~10 MB)
+- **svgd vs RRDtool CGI**: svgd is **28–58x faster** in RPS, latency is **20–58x lower**, memory use is **3.5x lower**
+- **svgd vs Graphite**: svgd is **4.2x faster** under light load (1347 vs 320 RPS), while Graphite uses **24x more memory** (241 MB vs 10 MB) and 70% CPU
+- **RRDtool CGI**: does not scale at all — 48 RPS under any load, CPU pinned at 110% (single-core ceiling), latency grows up to 1080 ms
+- **Graphite**: scales well in throughput, but requires 241 MB RAM even with no load
+- **svgd**: the only system with ~0% CPU under every load and minimal memory consumption (~10 MB)
 
-### Запуск бенчмарка
+### Running the benchmark
 
 ```bash
-# Полный цикл: тесты + графики + отчёт
+# Full cycle: tests + charts + report
 make report
 
-# Или пошагово:
-make test-bench-svgd       # Только svgd (без Docker)
-make test-bench            # svgd vs RRDtool vs Graphite (требует Docker)
-make generate-charts       # Генерация графиков сравнения
-make generate-report       # Генерация markdown-отчёта
+# Or step by step:
+make test-bench-svgd       # svgd only (no Docker)
+make test-bench            # svgd vs RRDtool vs Graphite (requires Docker)
+make generate-charts       # generate comparison charts
+make generate-report       # generate the markdown report
 ```
 
 ---
 
 ## rrdcached
 
-Настройка rrdtool по [инструкции](https://github.com/Pavelavl/cpu-http-monitor).
+Set up rrdtool following the [guide](https://github.com/Pavelavl/cpu-http-monitor).
 
-Для повышения производительности при работе с RRD-файлами:
+To improve performance when working with RRD files:
 
 ```bash
 sudo rrdcached -p /var/run/rrdcached.pid \
@@ -445,7 +463,7 @@ sudo rrdcached -p /var/run/rrdcached.pid \
                -f 3600 -w 1800 -z 900
 ```
 
-В `config.json`:
+In `config.json`:
 ```json
 "rrdcached_addr": "unix:/var/run/rrdcached.sock"
 ```
@@ -454,9 +472,9 @@ sudo rrdcached -p /var/run/rrdcached.pid \
 
 ## collectd
 
-Настройка collectd по [инструкции](https://github.com/Pavelavl/cpu-http-monitor).
+Set up collectd following the [guide](https://github.com/Pavelavl/cpu-http-monitor).
 
-Примеры конфигураций в [.infra/collectd/](.infra/collectd/):
+Example configurations live in [.infra/collectd/](.infra/collectd/):
 
 ```
 collectd/
@@ -476,19 +494,19 @@ collectd/
 
 ---
 
-## Тестирование
+## Testing
 
 ```bash
-# Все тесты
+# All tests
 make test
 
-# E2E тесты
+# E2E tests
 make test-e2e
 
-# Нагрузочные тесты
+# Load tests
 make test-load
 
-# UI тесты (требуется Python)
+# UI tests (requires Python)
 make test-ui
 ```
 
@@ -497,42 +515,42 @@ make test-ui
 ## Docker
 
 ```bash
-# Сборка
+# Build
 make docker-build
 
-# Запуск
+# Run
 make docker-up
 
-# Логи
+# Logs
 make docker-logs
 
-# Остановка
+# Stop
 make docker-down
 
-# Тесты в Docker
+# Tests in Docker
 make docker-test
 ```
 
 ---
 
-## Структура проекта
+## Project structure
 
 ```
 svgd/
-├── bin/                    # Бинарные файлы
-│   ├── svgd                # LSRP-сервер
-│   └── svgd-gate           # HTTP-шлюз
-├── gate/                   # HTTP-шлюз
+├── bin/                    # Binaries
+│   ├── svgd                # LSRP server
+│   └── svgd-gate           # HTTP gateway
+├── gate/                   # HTTP gateway
 │   ├── main.c
-│   ├── auth/               # Авторизация (JWT)
+│   ├── auth/               # Authorization (JWT)
 │   │   ├── auth.c
 │   │   └── auth.h
-│   └── static/             # Веб-интерфейс
+│   └── static/             # Web UI
 │       ├── index.html
 │       ├── login.html
 │       ├── script.js
 │       └── auth.js
-├── include/                # Заголовки
+├── include/                # Headers
 │   ├── cfg.h
 │   ├── handler.h
 │   ├── http.h
@@ -541,7 +559,7 @@ svgd/
 │       ├── cache.h
 │       ├── reader.h
 │       └── svg.h
-├── src/                    # Исходники backend
+├── src/                    # Backend sources
 │   ├── cfg.c
 │   ├── handler.c
 │   ├── http.c
@@ -553,26 +571,26 @@ svgd/
 │   └── scripts/
 │       └── generate_svg.js
 ├── scripts/                # Symlink → src/scripts/
-├── tests/                  # Тесты (Go)
+├── tests/                  # Tests (Go)
 │   ├── internal/
-│   │   ├── e2e/            # E2E тесты
-│   │   ├── load/           # Нагрузочные тесты
-│   │   ├── ui/             # UI тесты (Selenium/Python)
-│   │   └── comparison/     # Кросс-системный бенчмарк
-│   ├── shared/             # Общие утилиты для тестов
-│   └── results/            # Результаты тестов и отчёты
-├── lsrp/                   # LSRP протокол (submodule)
-├── examples/               # Примеры SVG-графиков
-├── .infra/                 # Инфраструктура (collectd, Docker)
+│   │   ├── e2e/            # E2E tests
+│   │   ├── load/           # Load tests
+│   │   ├── ui/             # UI tests (Selenium/Python)
+│   │   └── comparison/     # Cross-system benchmark
+│   ├── shared/             # Shared test utilities
+│   └── results/            # Test results and reports
+├── lsrp/                   # LSRP protocol (submodule)
+├── examples/               # Example SVG charts
+├── .infra/                 # Infrastructure (collectd, Docker)
 ├── .github/workflows/      # CI/CD (GitHub Actions)
-├── config.json             # Конфигурация
-├── datasources.json        # Источники данных для multi-backend
-├── deploy.sh               # Скрипт деплоя
+├── config.json             # Configuration
+├── datasources.json        # Data sources for multi-backend
+├── deploy.sh               # Deploy script
 ├── makefile
-├── Dockerfile              # Основной Docker-образ
-├── Dockerfile.base         # Базовый образ для сборки
-├── Dockerfile.tests        # Образ для запуска тестов
-├── docker-compose.yml      # Docker Compose (основной)
+├── Dockerfile              # Main Docker image
+├── Dockerfile.base         # Base image for the build
+├── Dockerfile.tests        # Image for running tests
+├── docker-compose.yml      # Docker Compose (main)
 └── docker-compose.multi.yml # Docker Compose (multi-datasource)
 ```
 
@@ -580,39 +598,39 @@ svgd/
 
 ## Troubleshooting
 
-### Сервер не запускается
+### The server won't start
 
 ```bash
-# Проверка портов
+# Check the ports
 ss -tulpn | grep -E '8080|8081'
 
-# Проверка прав к RRD
+# Check RRD permissions
 ls -la /opt/collectd/var/lib/collectd/rrd/
 
-# Запуск с логами
+# Run with logs
 ./bin/svgd ./config.json
 ```
 
-### Графики не отображаются
+### Charts don't render
 
 ```bash
-# Проверка RRD-файлов
+# Check the RRD files
 ls /opt/collectd/var/lib/collectd/rrd/localhost/
 
-# Проверка API
+# Check the API
 curl http://localhost:8080/_config/metrics
 curl http://localhost:8080/cpu
 ```
 
-### Низкая производительность
+### Low performance
 
-1. Включите rrdcached в config.json
-2. Увеличьте `thread_pool_size`
-3. Уменьшите интервал автообновления в UI
+1. Enable rrdcached in `config.json`
+2. Increase `thread_pool_size`
+3. Decrease the auto-refresh interval in the UI
 
 ---
 
-## Связанные проекты
+## Related projects
 
 - [LSRP](https://github.com/pavelavl/lsrp) — Lightweight Simple Request Protocol
 - [collectd](https://github.com/collectd/collectd) — System metrics collection

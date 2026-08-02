@@ -1,0 +1,43 @@
+[Unit]
+Description=SVGD Gate (HTTP gateway + web UI)
+Documentation=file:///usr/local/share/doc/svgd
+After=network.target svgd.service
+Wants=svgd.service
+
+[Service]
+Type=simple
+User=svgd
+Group=svgd
+# Args: <svgd_host> <svgd_port> <http_port> <static_path>
+# Backend port (8081) must match server.tcp_port in /etc/svgd/config.json.
+# HTTP port (8080) is the port users hit; open it in your firewall.
+ExecStart=/usr/local/bin/svgd-gate 127.0.0.1 8081 8080 /usr/local/share/svgd/static
+WorkingDirectory=/var/lib/svgd
+Restart=on-failure
+RestartSec=5
+
+StateDirectory=svgd
+LogsDirectory=svgd
+RuntimeDirectory=svgd
+
+# --- Hardening ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+ReadWritePaths=/var/lib/svgd /var/log/svgd
+# High ports only -> no capabilities required.
+CapabilityBoundingSet=
+AmbientCapabilities=
+# The gate reads /etc/svgd/auth.json, datasources.json at startup; ensure the
+# svgd user can read them (see .infra/install-notes.md -> "Set config perms").
+
+[Install]
+WantedBy=multi-user.target

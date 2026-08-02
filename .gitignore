@@ -16,8 +16,18 @@ settings.local.json
 scripts
 
 *.md
+# Keep project documentation under version control (overrides the *.md rule above)
+!readme.md
+!readme.ru.md
+!CONTRIBUTING.md
+!CODE_OF_CONDUCT.md
+!SECURITY.md
+!CHANGELOG.md
+!/.github/**/*.md
+!/.infra/install-notes.md
 docs/
 PRESENTATION.*
+.codegraph/
 
 # Benchmark output files
 tests/benchmark/output/*.csv

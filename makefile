@@ -85,6 +85,47 @@ clean:
 	rmdir $(EXAMPLES_DIR) 2>/dev/null || true
 
 # ============================================================
+# INSTALL
+# ============================================================
+
+# Install paths. Override with `make install PREFIX=/opt/svgd DESTDIR=/tmp/pkg`.
+PREFIX      ?= /usr/local
+DESTDIR     ?=
+INST_BIN     = $(DESTDIR)$(PREFIX)/bin
+INST_DATA    = $(DESTDIR)$(PREFIX)/share/svgd
+INST_SYSTEMD = $(DESTDIR)$(PREFIX)/lib/systemd/system
+INST_SYSCONF = $(DESTDIR)/etc/svgd
+
+# Install binaries, web UI, JS renderer, configs, and systemd units.
+# Configs under /etc/svgd are installed only if absent — existing configs are
+# preserved across re-installs. Run as root (or via a package manager) so that
+# /etc, /var/lib, /var/log, and the systemd dir are writable.
+# Post-install steps: see .infra/install-notes.md.
+install: build
+	@echo "=== Installing svgd into $(PREFIX) (DESTDIR=$(DESTDIR)) ==="
+	install -d $(INST_BIN)
+	install -m 0755 $(BIN_DIR)/$(SERVER_BIN) $(INST_BIN)/
+	install -m 0755 $(BIN_DIR)/$(GATE_BIN)  $(INST_BIN)/
+	@# --- web UI ---
+	install -d $(INST_DATA)/static
+	install -m 0644 gate/static/* $(INST_DATA)/static/
+	@# --- JS rendering script ---
+	install -d $(INST_DATA)/scripts
+	install -m 0644 src/scripts/generate_svg.js $(INST_DATA)/scripts/
+	@# --- runtime directories ---
+	install -d $(INST_SYSCONF) $(DESTDIR)/var/lib/svgd $(DESTDIR)/var/log/svgd
+	@# --- configs (never clobber existing files) ---
+	[ -f $(INST_SYSCONF)/config.json      ] || install -m 0644 config.sample.json      $(INST_SYSCONF)/config.json
+	[ -f $(INST_SYSCONF)/datasources.json ] || install -m 0644 datasources.sample.json $(INST_SYSCONF)/datasources.json
+	[ -f $(INST_SYSCONF)/auth.json        ] || install -m 0640 auth.example.json       $(INST_SYSCONF)/auth.json
+	@# --- systemd units (default PREFIX paths are baked into the unit files) ---
+	install -d $(INST_SYSTEMD)
+	install -m 0644 .infra/systemd/svgd.service      $(INST_SYSTEMD)/
+	install -m 0644 .infra/systemd/svgd-gate.service $(INST_SYSTEMD)/
+	@echo "=== Install complete. Post-install steps: .infra/install-notes.md ==="
+	@echo "    systemctl daemon-reload && systemctl enable --now svgd svgd-gate"
+
+# ============================================================
 # RUN
 # ============================================================
 

@@ -1,0 +1,49 @@
+[Unit]
+Description=SVGD Backend (RRD -> SVG renderer)
+Documentation=file:///usr/local/share/doc/svgd
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=svgd
+Group=svgd
+ExecStart=/usr/local/bin/svgd /etc/svgd/config.json
+WorkingDirectory=/var/lib/svgd
+Restart=on-failure
+RestartSec=5
+
+# Runtime dirs owned by the service user (StateDirectory=svgd -> /var/lib/svgd,
+# LogsDirectory=svgd -> /var/log/svgd, RuntimeDirectory=svgd -> /run/svgd).
+StateDirectory=svgd
+LogsDirectory=svgd
+RuntimeDirectory=svgd
+
+# --- Hardening ---
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+ReadWritePaths=/var/lib/svgd /var/log/svgd
+# Empty capability set: svgd binds to high ports (>1024), so it needs no
+# special capabilities.
+CapabilityBoundingSet=
+AmbientCapabilities=
+# NOTE: If svgd talks to rrdcached over a UNIX socket (server.rrdcached_addr
+# in config.json), socket connect() works under ProtectSystem=strict on most
+# distros, but if your rrdached socket lives under a path that needs write
+# access (e.g. some chrooted setups), append that dir to ReadWritePaths above,
+# e.g.:   ReadWritePaths=/var/lib/svgd /var/log/svgd /var/run/rrdcached
+# Duktape (JS renderer) is an interpreter without JIT, so W^X is safe to
+# enable; uncomment if your duktape build is vanilla:
+#MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target
