@@ -50,6 +50,15 @@ static duk_context* get_thread_context(void) {
     return ctx;
 }
 
+/*
+ * Public accessor for a thread-safe Duktape context.
+ * Used for non-rendering JS work (e.g. JSON parsing in the Grafana handler).
+ * Returns the calling thread's local context (created lazily), or NULL on failure.
+ */
+duk_context *svg_get_context(void) {
+    return get_thread_context();
+}
+
 int svg_init_cache(const char *filename) {
     if (js_cache_initialized) return 0;
 

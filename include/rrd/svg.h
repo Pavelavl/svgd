@@ -9,6 +9,7 @@
 #define SVGD_RRD_SVG_H
 
 #include "reader.h"  /* For MetricData definition */
+#include <duktape.h>  /* For duk_context (svg_get_context declaration) */
 
 /**
  * Initialize the JavaScript cache
@@ -37,6 +38,13 @@ void svg_prewarm_context(void);
  * @return Allocated SVG string (caller must free), or NULL on error
  */
 char* svg_generate(const char *script_path, MetricData *data, int width, int height);
+
+/**
+ * Acquire a thread-safe Duktape context for non-rendering JS work (e.g. JSON parsing).
+ * Contexts are thread-local (one per worker thread).
+ * @return Thread-local Duktape context (created lazily), or NULL on failure
+ */
+duk_context *svg_get_context(void);
 
 /* Compatibility aliases */
 #define generate_svg(ctx, path, data, width, height) svg_generate(path, data, width, height)

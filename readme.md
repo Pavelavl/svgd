@@ -128,7 +128,40 @@ After starting it, open http://localhost:8080 in your browser.
 | `transform_divisor` | Divisor for the transform (`divide`) |
 | `value_format` | Output format (printf-style) |
 
-#### Metric examples
+#### Grafana integration
+
+svgd-gate implements the [simpod / classic SimpleJson](https://github.com/grafana/simple-json-datasource) structured datasource wire protocol, so any Grafana instance can plot svgd metrics as time-series with **zero per-panel configuration** (metric dropdown + auto-rendered graph). All JSON parsing/assembly happens in the svgd backend (Duktape); the gate is a thin forwarder — no extra dependencies.
+
+### Endpoints (base path `/grafana`)
+
+| Method + path | Purpose |
+|---|---|
+| `GET /grafana` | "Save & Test" connection check → `200 {}` |
+| `POST /grafana/search` | metric enumeration → `["cpu","ram",...]` |
+| `POST /grafana/query` | time-series fetch → `[{"target":"cpu","datapoints":[[value, epoch_ms], ...]}]` |
+| `POST /grafana/annotations` | stub → `[]` |
+
+### Configure the datasource in Grafana
+
+1. Install a compatible plugin: simpod `JSON Datasource`, or the classic `grafana-simple-json-datasource`.
+2. Add a datasource of that type:
+   - **URL**: `http://<svgd-gate-host>:8080/grafana`
+   - **Access**: `Server` (recommended — Grafana proxies the request and injects auth headers, avoiding CORS).
+   - **Custom HTTP Header**: `Authorization: Bearer <token>` — obtain the token from svgd-gate's auth (see [Authorization](#authorization)). If svgd auth is not configured, protected endpoints return 401, so configure auth and use a token.
+3. **Save & Test** → should report success.
+4. In a panel, choose the **Timeseries** query type, pick a metric from the dropdown (svgd's configured endpoints), and the graph renders. Multi-series metrics (per-disk, per-interface, …) return one target each.
+
+### Notes / v1 limits
+
+- **Time range**: the requested window width (`to − from`) is fetched as "last N seconds up to now". Relative Grafana ranges ("last 6h/24h") work; absolute historical windows are rounded to the width and fetched to now.
+- **Timestamps**: rrd stores epoch seconds; responses are converted to epoch milliseconds for Grafana.
+- **Large request bodies**: the `/query` body is forwarded through the LSRP param channel (capped); typical panels are well under the limit, but very large bodies (dozens of targets / heavy `scopedVars`) are rejected with `413`.
+- **Multi-datasource**: pass `?datasource=<name>` to target a specific svgd backend, as with the REST API.
+- The plugin repos are archived, but the **wire contract is stable**; svgd's JSON is reusable as-is by Grafana's Infinity datasource (with added JSONPath) should the plugin disappear.
+
+---
+
+## Metric examples
 
 **CPU (simple metric):**
 ```json

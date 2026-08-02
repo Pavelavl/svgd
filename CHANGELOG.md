@@ -17,7 +17,16 @@ Tracked on the `master` branch. New entries are added here as features land;
 they move to a versioned section on release.
 
 ### Added
-- _(nothing yet — add new work here before it ships)_
+- **Grafana datasource compatibility** — svgd-gate now serves the simpod /
+  classic-SimpleJson structured datasource contract at `/grafana/*`
+  (`GET /grafana`, `POST /grafana/search`, `POST /grafana/query`,
+  `POST /grafana/annotations`). A Grafana instance can plot svgd metrics as
+  time-series with zero per-panel configuration. The gate forwards requests to
+  the backend, which parses the query body with its existing Duktape engine and
+  assembles Grafana time-series JSON — no new dependencies. Reuses the gate's
+  existing Bearer-token auth (set `Authorization: Bearer <token>` as a custom
+  header in the datasource config, Access = Server). Gate request buffer raised
+  to 64 KB to accept Grafana POST bodies.
 
 ### Changed
 - _(nothing yet)_

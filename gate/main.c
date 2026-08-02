@@ -15,7 +15,7 @@
 #define DEFAULT_SVGD_PORT 8081
 #define DEFAULT_HTTP_PORT 8080
 #define DEFAULT_STATIC_PATH "./gate/static"
-#define MAX_REQUEST_LEN 8192
+#define MAX_REQUEST_LEN 65536   // large enough for Grafana /query POST bodies
 #define MAX_PARAMS_LEN LSRP_MAX_PARAMS_LEN
 #define MAX_FILE_SIZE (1024 * 1024)  // 1MB max for static files
 #define CLIENT_RECV_TIMEOUT_SEC 5    // Timeout for client recv (seconds)
@@ -746,6 +746,136 @@ static void handle_login(int client_sock, const char *body) {
     free(token);
 }
 
+// Percent-encode a string for safe inclusion as a urlencoded param value.
+// Encodes only the chars that would break param parsing: & = % +
+static char *url_encode(const char *s) {
+    if (!s) return NULL;
+    size_t len = strlen(s);
+    char *out = malloc(len * 3 + 1);
+    if (!out) return NULL;
+    size_t o = 0;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == '&' || c == '=' || c == '%' || c == '+') {
+            o += (size_t)sprintf(out + o, "%%%02X", c);
+        } else {
+            out[o++] = (char)c;
+        }
+    }
+    out[o] = '\0';
+    return out;
+}
+
+// Forward a prebuilt LSRP params string to the target backend and relay its JSON
+// response. Resolves the datasource from ?datasource= (or the configured default).
+static void grafana_forward(int client_sock, const char *buffer, const char *params) {
+    char *ds_name = NULL;
+    const char *query_start = strchr(buffer, '?');
+    if (query_start) ds_name = extract_datasource_param(query_start);
+
+    Datasource *target_ds = NULL;
+    if (ds_name) {
+        target_ds = find_datasource(ds_name);
+        if (!target_ds) {
+            char err[256];
+            snprintf(err, sizeof(err), "{\"error\":\"Datasource '%s' not found\"}", ds_name);
+            send_json(client_sock, 404, err);
+            free(ds_name);
+            return;
+        }
+    } else if (datasources.count > 0 && datasources.default_name[0]) {
+        target_ds = find_datasource(datasources.default_name);
+    }
+    const char *target_host = target_ds ? target_ds->host : global_config.svgd_host;
+    int target_port = target_ds ? target_ds->port : global_config.svgd_port;
+    if (ds_name) free(ds_name);
+
+    lsrp_response_t lsrp_resp = {0};
+    int ret = lsrp_client_send(target_host, target_port, params, &lsrp_resp);
+    if (ret != 0) {
+        send_error(client_sock, "Failed to communicate with svgd service");
+        return;
+    }
+
+    if (lsrp_resp.status == 0) {
+        send_response(client_sock, "application/json", lsrp_resp.data, lsrp_resp.data_len);
+    } else {
+        // Backend-level error (unknown metric, no data): return an empty result so
+        // Grafana shows "no data" instead of erroring the whole panel.
+        fprintf(stderr, "grafana: backend status=%d: %.*s\n",
+                lsrp_resp.status, (int)lsrp_resp.data_len,
+                lsrp_resp.data ? (const char *)lsrp_resp.data : "");
+        send_json(client_sock, 200, "[]");
+    }
+    free(lsrp_resp.data);
+}
+
+// Handle /grafana/* — the simpod / classic-SimpleJson structured datasource contract.
+// The gate is a thin forwarder; JSON parsing and time-series assembly happen in the
+// backend (which has Duktape). Configure in Grafana: URL .../grafana, Access = Server,
+// custom header Authorization: Bearer <svgd-token>.
+static void handle_grafana(int client_sock, const char *path, const char *buffer) {
+    const char *sub = path + 8;     // skip "/grafana"
+    if (*sub == '/') sub++;         // "/grafana/search" -> "search"
+
+    if (strncmp(buffer, "OPTIONS ", 8) == 0) {
+        const char *resp = "HTTP/1.1 200 OK\r\n"
+            "Access-Control-Allow-Origin: *\r\n"
+            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+            "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
+            "Content-Length: 0\r\n\r\n";
+        send(client_sock, resp, strlen(resp), MSG_NOSIGNAL);
+        return;
+    }
+
+    // GET /grafana (or /grafana/) — Grafana "Save & Test" connection check
+    if (strncmp(buffer, "GET ", 4) == 0) {
+        send_json(client_sock, 200, "{}");
+        return;
+    }
+
+    if (strncmp(buffer, "POST ", 5) != 0) {
+        send_404(client_sock);
+        return;
+    }
+
+    if (strcmp(sub, "search") == 0) {
+        grafana_forward(client_sock, buffer, "endpoint=_grafana/search");
+        return;
+    }
+
+    if (strcmp(sub, "query") == 0) {
+        char *body = extract_body(buffer);
+        if (!body) {
+            send_json(client_sock, 400, "{\"error\":\"Missing request body\"}");
+            return;
+        }
+        char *enc = url_encode(body);
+        free(body);
+        if (!enc) {
+            send_json(client_sock, 500, "{\"error\":\"Failed to encode body\"}");
+            return;
+        }
+        char params[MAX_PARAMS_LEN];
+        int n = snprintf(params, sizeof(params), "endpoint=_grafana/query&body=%s", enc);
+        free(enc);
+        if (n < 0 || (size_t)n >= sizeof(params)) {
+            // URL-encoded body exceeded the LSRP params cap — documented v1 limit.
+            send_json(client_sock, 413, "{\"error\":\"Request body too large\"}");
+            return;
+        }
+        grafana_forward(client_sock, buffer, params);
+        return;
+    }
+
+    if (strcmp(sub, "annotations") == 0) {
+        send_json(client_sock, 200, "[]");
+        return;
+    }
+
+    send_json(client_sock, 404, "{\"error\":\"Unknown grafana endpoint\"}");
+}
+
 int main(int argc, char *argv[]) {
     // Parse command-line arguments
     if (argc > 1 && argv[1][0] != '\0') global_config.svgd_host = argv[1];
@@ -815,7 +945,7 @@ int main(int argc, char *argv[]) {
     printf("  Backend: %s:%d\n", global_config.svgd_host, global_config.svgd_port);
 
     // Main loop
-    char buffer[MAX_REQUEST_LEN];
+    static char buffer[MAX_REQUEST_LEN];
     while (running) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
@@ -947,6 +1077,16 @@ int main(int argc, char *argv[]) {
                 close(client_sock);
                 continue;
             }
+        }
+
+        // Grafana datasource routes (JSON; forwarded to the backend which has Duktape)
+        if (strncmp(path, "/grafana", 8) == 0 &&
+            (path[8] == '\0' || path[8] == '/')) {
+            handle_grafana(client_sock, path, buffer);
+            free(path);
+            shutdown(client_sock, SHUT_WR);
+            close(client_sock);
+            continue;
         }
 
         // Handle datasources API

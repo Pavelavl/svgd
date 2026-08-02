@@ -201,7 +201,9 @@ static int lsrp_handler(lsrp_request_t *req, lsrp_response_t *resp) {
     }
 
     /* Process request with caching enabled (width/height 0 = use defaults) */
-    handler_result_t *result = handler_process(&global_config, endpoint, NULL, period, width, height, 1);
+    /* Pass req->params as the query so handler_process can read grafana `body`,
+       width/height/format params. (Re-parsing width/height is harmless — same values.) */
+    handler_result_t *result = handler_process(&global_config, endpoint, req->params, period, width, height, 1);
     free(endpoint);
 
     if (result && result->status == 0) {
