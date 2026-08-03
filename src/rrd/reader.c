@@ -14,6 +14,55 @@
 #include <math.h>
 #include <unistd.h>
 
+/* Чистая (без I/O) часть select_optimal_step: выбор шага по списку RRA.
+ * Выделена из select_optimal_step для unit-тестирования; побайтово повторяет
+ * исходную inline-логику. Вызывается только с range > 0 (диапазон уже проверен
+ * вызывающей стороной). */
+unsigned long select_step_from_rras(const RRAStepInfo *rras, int rra_count,
+                                    time_t range, time_t period,
+                                    unsigned long base_step) {
+    const int min_points = 100;
+    const int max_points = 2400;
+    const unsigned long min_step = base_step;
+
+    unsigned long optimal_step = 0;
+    int best_num_points = 0;
+
+    for (int i = 0; i < rra_count; i++) {
+        if (strcmp(rras[i].cf, "AVERAGE") != 0) continue;
+        unsigned long step = rras[i].effective_step;
+        if (step < min_step) continue;
+
+        int num_points = (range + step - 1) / step;
+        if (num_points >= min_points && num_points <= max_points) {
+            optimal_step = step;
+            best_num_points = num_points;
+            break;
+        }
+        if (num_points < min_points && (optimal_step == 0 || num_points > best_num_points)) {
+            optimal_step = step;
+            best_num_points = num_points;
+        }
+        if (num_points > max_points && (optimal_step == 0 || step < optimal_step)) {
+            optimal_step = step;
+            best_num_points = num_points;
+        }
+    }
+
+    if (optimal_step == 0 && range <= period) {
+        for (int i = 0; i < rra_count; i++) {
+            if (strcmp(rras[i].cf, "AVERAGE") == 0 && rras[i].pdp_per_row == 1) {
+                optimal_step = rras[i].effective_step;
+                best_num_points = (range + optimal_step - 1) / optimal_step;
+                break;
+            }
+        }
+    }
+
+    if (optimal_step == 0) optimal_step = min_step;
+    return optimal_step;
+}
+
 /* Select optimal step based on RRD file structure */
 static unsigned long select_optimal_step(const char *filename, time_t start, time_t end, int period) {
     rrd_info_t *info = rrd_info_r(filename);
@@ -86,45 +135,15 @@ static unsigned long select_optimal_step(const char *filename, time_t start, tim
         return default_step;
     }
 
-    const int min_points = 100;
-    const int max_points = 2400;
-    const unsigned long min_step = default_step;
-
-    unsigned long optimal_step = 0;
-    int best_num_points = 0;
-
+    /* Делегируем выбор шага чистой (тестируемой) функции: собираем массив
+     * RRAStepInfo и вызываем select_step_from_rras с теми же параметрами. */
+    RRAStepInfo step_rras[20] = {0};
     for (int i = 0; i < rra_count; i++) {
-        if (strcmp(rras[i].cf, "AVERAGE") != 0) continue;
-        unsigned long step = rras[i].effective_step;
-        if (step < min_step) continue;
-
-        int num_points = (range + step - 1) / step;
-        if (num_points >= min_points && num_points <= max_points) {
-            optimal_step = step;
-            best_num_points = num_points;
-            break;
-        }
-        if (num_points < min_points && (optimal_step == 0 || num_points > best_num_points)) {
-            optimal_step = step;
-            best_num_points = num_points;
-        }
-        if (num_points > max_points && (optimal_step == 0 || step < optimal_step)) {
-            optimal_step = step;
-            best_num_points = num_points;
-        }
+        step_rras[i].pdp_per_row = rras[i].pdp_per_row;
+        step_rras[i].effective_step = rras[i].effective_step;
+        step_rras[i].cf = rras[i].cf;
     }
-
-    if (optimal_step == 0 && range <= period) {
-        for (int i = 0; i < rra_count; i++) {
-            if (strcmp(rras[i].cf, "AVERAGE") == 0 && rras[i].pdp_per_row == 1) {
-                optimal_step = rras[i].effective_step;
-                best_num_points = (range + optimal_step - 1) / optimal_step;
-                break;
-            }
-        }
-    }
-
-    if (optimal_step == 0) optimal_step = min_step;
+    unsigned long optimal_step = select_step_from_rras(step_rras, rra_count, range, period, default_step);
 
     for (int i = 0; i < rra_count; i++) {
         if (rras[i].cf) free(rras[i].cf);

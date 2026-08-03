@@ -38,6 +38,9 @@ PRESENTATION.*
 # Benchmark output files
 tests/benchmark/output/*.csv
 
+# C unit-test build artifacts (tests/c/, компилируются `make test-c`)
+tests/c/.build/
+
 # Auth configuration (contains secrets)
 auth.json
 gate/auth/auth.json

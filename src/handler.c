@@ -4,6 +4,7 @@
  */
 
 #include "../include/handler.h"
+#include "../include/path_util.h"
 #include "../include/rrd_r.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,40 +54,9 @@ static handler_result_t* create_error_result(const char *message) {
     return result;
 }
 
-/**
- * Extract parameter from endpoint path
- * e.g., "cpu/process/nginx" with endpoint "cpu/process" -> "nginx"
- */
-static char* extract_param_from_path(const char *path, const char *endpoint) {
-    if (!path || !endpoint) return NULL;
-
-    size_t endpoint_len = strlen(endpoint);
-    if (strncmp(path, endpoint, endpoint_len) != 0) {
-        return NULL;
-    }
-
-    const char *param_start = path + endpoint_len;
-    if (*param_start == '/') param_start++;
-
-    if (*param_start == '\0') return NULL;
-
-    return strdup(param_start);
-}
-
-/**
- * Build RRD file path from template
- */
-static void build_rrd_path(char *dest, size_t dest_size, const char *base_path,
-                          const char *path_template, const char *param) {
-    if (!dest || dest_size == 0) return;
-
-    if (strchr(path_template, '%') && param) {
-        snprintf(dest, dest_size, "%s/", base_path);
-        snprintf(dest + strlen(dest), dest_size - strlen(dest), path_template, param);
-    } else {
-        snprintf(dest, dest_size, "%s/%s", base_path, path_template);
-    }
-}
+/* extract_param_from_path() и build_rrd_path() вынесены в src/path_util.c
+ * (см. include/path_util.h) — чистая логика построения путей, покрытая
+ * unit-тестами в tests/c/test_path.c. */
 
 /* ============================================================================
  * Grafana datasource support

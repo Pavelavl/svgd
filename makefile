@@ -24,7 +24,7 @@ LSRP_DIR    = lsrp
 BIN_DIR     = bin
 EXAMPLES_DIR = examples
 
-SERVER_SRC = src/main.c src/cfg.c src/http.c src/handler.c src/rrd/reader.c src/rrd/cache.c src/rrd/svg.c $(LSRP_DIR)/lsrp_server.c
+SERVER_SRC = src/main.c src/cfg.c src/http.c src/handler.c src/path_util.c src/rrd/reader.c src/rrd/cache.c src/rrd/svg.c $(LSRP_DIR)/lsrp_server.c
 SERVER_BIN = svgd
 GATE_SRC   = gate/*.c gate/auth/*.c $(LSRP_DIR)/lsrp_client.c
 GATE_BIN   = svgd-gate
@@ -51,7 +51,7 @@ SVG_FILES = \
 # === Phony Targets ===
 .PHONY: all build build-backend clean install
 .PHONY: run run-backend generate
-.PHONY: test test-all test-e2e test-load test-ui test-ui-browser test-comparison
+.PHONY: test test-all test-c test-e2e test-load test-ui test-ui-browser test-comparison
 .PHONY: report generate-report generate-charts clean-results
 .PHONY: docker-build docker-up docker-down docker-logs docker-test docker-test-ui
 .PHONY: docker-bases svgd-base collectd-base
@@ -202,10 +202,25 @@ generate:
 # TEST
 # ============================================================
 
-test: test-e2e test-load
+# C unit-тесты идут первыми: они быстрые и не требуют бинарников/RRD-данных,
+# поэтому служат ранним шлюзом регрессии чистой логики до запуска интеграционных
+# Go-тестов (которым нужны скомпилированные bin/svgd и RRD-файлы).
+test: test-c test-e2e test-load
 
 test-all: test-e2e test-load test-comparison
 	@echo "All tests completed"
+
+# ============================================================
+# C UNIT TESTS (tests/c/)
+# ============================================================
+
+# Компилирует и прогоняет C unit-тесты чистой логики (select_step_from_rras,
+# find_metric_config, build_rrd_path/extract_param_from_path, load_config).
+# Харнес: tests/c/minitest.h (в духе svgd-collect), раннер — tests/c/run.sh.
+# Сборка через $(CC); флаги согласованы с основными CFLAGS (без -rdynamic/-O2,
+# с -O0 -g для удобной отладки тестов). Не затрагивает bin/svgd.
+test-c:
+	@bash tests/c/run.sh
 
 test-e2e:
 	REPO_ROOT="$(REPO_ROOT)" sh -c 'cd tests && go test -v ./internal/e2e/...'

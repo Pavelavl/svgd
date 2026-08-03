@@ -29,6 +29,39 @@ typedef struct MetricData {
 } MetricData;
 
 /**
+ * @brief Описание одного RRA для выбора шага агрегации
+ *
+ * Используется select_step_from_rras — чистой (без I/O) частью
+ * select_optimal_step, выделенной для unit-тестирования.
+ */
+typedef struct {
+    unsigned long pdp_per_row;    /**< PDP на строку (1 = «сырой» RRA) */
+    unsigned long effective_step; /**< Эффективный шаг = pdp_per_row * base_step */
+    const char *cf;               /**< Функция консолидации (AVERAGE/MAX/...) */
+} RRAStepInfo;
+
+/**
+ * @brief Выбрать оптимальный шаг агрегации по списку RRA
+ *
+ * Чистая функция (без I/O и побочных эффектов), выделена из select_optimal_step
+ * для тестируемости. Алгоритм побайтово идентичен исходной inline-логике:
+ * среди RRA с cf="AVERAGE" и step >= base_step ищется шаг, дающий число точек
+ * в окне [100, 2400]; при отсутствии — шаг с максимальным числом точек (< 100)
+ * либо минимальный шаг (> 2400); fallback на «сырой» RRA (pdp_per_row == 1),
+ * если диапазон укладывается в запрошенный период; иначе base_step.
+ *
+ * @param rras Массив описаний RRA (рассматриваются только AVERAGE)
+ * @param rra_count Число элементов rras
+ * @param range Диапазон выборки в секундах (end - start), должен быть > 0
+ * @param period Запрошенный период в секундах (для fallback-логики)
+ * @param base_step Базовый шаг RRD (он же min_step / значение по умолчанию)
+ * @return Выбранный шаг в секундах
+ */
+unsigned long select_step_from_rras(const RRAStepInfo *rras, int rra_count,
+                                    time_t range, time_t period,
+                                    unsigned long base_step);
+
+/**
  * Fetch metric data from RRD file
  *
  * @param rrdcached_addr Address of rrdcached daemon (NULL or empty for direct file access)
