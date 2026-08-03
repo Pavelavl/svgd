@@ -17,7 +17,8 @@ Copy `config.sample.json` to `config.json` and edit.
     "rrdcached_addr": "",
     "thread_pool_size": 4,
     "cache_ttl_seconds": 5,
-    "verbose": 0
+    "verbose": 0,
+    "theme": "light"
   },
   "rrd": {
     "base_path": "/opt/collectd/var/lib/collectd/rrd/localhost"
@@ -40,6 +41,7 @@ Copy `config.sample.json` to `config.json` and edit.
 | `thread_pool_size` | int | `4` | Worker threads (LSRP mode only). |
 | `cache_ttl_seconds` | int | `5` | TTL for cached RRD data (LSRP mode only). |
 | `verbose` | int | `0` | Logging verbosity (`0` = quiet). |
+| `theme` | string | `"light"` | SVG render theme: `"light"`, `"dark"`, or `"high-contrast"`. Overridden per-request by the `?theme=` query parameter. See [Gallery](gallery.md#themes). |
 
 > **Production note:** HTTP mode (`"protocol": "http"`) is a compatibility
 > fallback — single-threaded, no caching, no pre-warmed JS contexts. Use LSRP

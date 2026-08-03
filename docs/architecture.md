@@ -90,6 +90,9 @@ returns the SVG string. Consequences:
 
 - **To change how charts look, edit the JS** — colors, scales, axes, legends,
   smoothing, formatting. No C recompile, no rebuild of the binary.
+- **Themes (`light` / `dark` / `high-contrast`) are pure JS palettes**, selected
+  per-request via `?theme=` or globally via `server.theme`. Adding a new one is a
+  few lines in `THEMES` — the C side is agnostic. See the [Gallery](gallery.md).
 - JS contexts are **per-thread and pre-warmed** at startup, so rendering is
   not bottlenecked by engine initialization on the hot path.
 - The JS layer is the primary extensibility surface. Prefer extending it (and
