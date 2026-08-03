@@ -1,0 +1,88 @@
+name: Docs
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'ROADMAP.md'
+      - 'examples/menu.png'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'ROADMAP.md'
+      - 'examples/menu.png'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, cancelling runs in-progress.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Roadmap is included into docs/roadmap.md via pymdownx.snippets,
+          # and docs/assets/* are copied from examples/ on build — we need
+          # the full tree (ROADMAP.md, examples/, svgd-collect/ are all in-repo).
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+          cache: pip
+
+      - name: Install MkDocs & Material
+        run: |
+          python -m pip install --upgrade pip
+          pip install \
+            mkdocs \
+            mkdocs-material
+
+      - name: Sync docs/assets from examples
+        # docs/assets/ ships the dashboard + sample charts used by index.md.
+        # Re-copy here so the build is robust even if assets/ is gitignored.
+        run: |
+          mkdir -p docs/assets
+          cp -f examples/menu.png docs/assets/menu.png 2>/dev/null || true
+          cp -f examples/cpu.svg docs/assets/cpu.svg 2>/dev/null || true
+          cp -f examples/ram.svg docs/assets/ram.svg 2>/dev/null || true
+          cp -f examples/network.svg docs/assets/network.svg 2>/dev/null || true
+          cp -f examples/disk.svg docs/assets/disk.svg 2>/dev/null || true
+          cp -f examples/pgsql.svg docs/assets/pgsql.svg 2>/dev/null || true
+
+      - name: Build site (strict)
+        run: mkdocs build --strict
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    # Deploy only on pushes to the default branch; skip on PRs.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,100 @@
+site_name: svgd
+site_description: >-
+  The most resource-efficient way to get beautiful system-metric charts.
+  A lightweight C monitoring system that renders SVG charts from RRD time-series
+  files — ~0% CPU / ~10 MB RAM under load, for edge/IoT/embedded devices and
+  embedding into any interface via zero-dependency SVG.
+site_url: https://Pavelavl.github.io/svgd/
+repo_name: Pavelavl/svgd
+repo_url: https://github.com/Pavelavl/svgd
+edit_uri: edit/master/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  language: en
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+    - search.suggest
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Roboto
+    code: Roboto Mono
+  icon:
+    logo: material/chart-line-variant
+    repo: fontawesome/brands/github
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Pavelavl/svgd
+    - icon: fontawesome/brands/github
+      link: https://github.com/Pavelavl/lsrp
+      name: LSRP protocol
+  generator: false
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path:
+        - .
+        - docs
+      check_paths: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.keys
+  - attr_list
+  - md_in_html
+  - def_list
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Overview: index.md
+  - Quick start: quickstart.md
+  - Installation: install.md
+  - Architecture: architecture.md
+  - Configuration: configuration.md
+  - Comparison: comparison.md
+  - Roadmap: roadmap.md
+
+plugins:
+  - search
+  - tags
+
+extra_javascript: []
