@@ -1,0 +1,207 @@
+name: Release
+
+# Publishes a GitHub Release on semver tag pushes (v*).
+# Artifacts per release:
+#   - svgd-<ver>-linux-amd64.tar.gz   x86_64 binaries (svgd + svgd-gate)
+#   - svgd-<ver>-linux-arm64.tar.gz   ARM64 binaries   (svgd + svgd-gate)
+#   - svgd-<ver>.tar.gz               source tarball (for packagers / AUR)
+#
+# The binary packages mirror deploy.yml's Docker-based cross-compile so the
+# toolchain matches what ships in production. Release notes are extracted from
+# CHANGELOG.md (matching [version] section, falling back to [Unreleased]).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0); must already exist'
+        required: true
+
+permissions:
+  contents: write   # softprops/action-gh-release needs this to create the release
+
+jobs:
+  # ------------------------------------------------------------------
+  # Per-architecture binary packages (svgd + svgd-gate + UI + samples).
+  # ------------------------------------------------------------------
+  build-binaries:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+          - arch: arm64
+            platform: linux/arm64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Same Docker-based cross-compile as deploy.yml (debian:trixie toolchain).
+      - name: Build svgd + svgd-gate (${{ matrix.arch }})
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace -w /workspace \
+            --platform ${{ matrix.platform }} \
+            debian:trixie \
+            bash -c "apt-get update && \
+                     apt-get install -y gcc make jq file librrd-dev duktape-dev libssl-dev && \
+                     make build"
+
+      - name: Verify binary architecture
+        run: file bin/svgd bin/svgd-gate
+
+      - name: Fix ownership
+        run: sudo chown -R "$(id -u):$(id -g)" .
+
+      - name: Stage binary package
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          STAGE="svgd-${VERSION}-linux-${{ matrix.arch }}"
+          mkdir -p "$STAGE/bin" "$STAGE/scripts" "$STAGE/static" "$STAGE/systemd"
+          cp bin/svgd bin/svgd-gate "$STAGE/bin/"
+          cp src/scripts/generate_svg.js "$STAGE/scripts/"
+          cp -r gate/static/* "$STAGE/static/"
+          cp config.sample.json datasources.sample.json auth.example.json "$STAGE/"
+          cp .infra/systemd/svgd.service .infra/systemd/svgd-gate.service "$STAGE/systemd/"
+          # Record version + arch inside the package for consumers.
+          printf '%s\nlinux-${{ matrix.arch }}\n' "$VERSION" > "$STAGE/VERSION"
+          tar --owner=0 --group=0 -czf "$STAGE.tar.gz" "$STAGE"
+          echo "Packaged:"
+          tar tzf "$STAGE.tar.gz"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: svgd-linux-${{ matrix.arch }}
+          path: svgd-*.tar.gz
+          retention-days: 14
+
+  # ------------------------------------------------------------------
+  # Source tarball for packagers (AUR / distro maintainers).
+  # ------------------------------------------------------------------
+  build-source:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0   # full history so `git describe` resolves the tag
+
+      - name: make dist
+        run: make dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: svgd-source
+          path: dist/svgd-*.tar.gz
+          retention-days: 14
+
+  # ------------------------------------------------------------------
+  # Publish the GitHub Release with all artifacts + CHANGELOG notes.
+  # ------------------------------------------------------------------
+  release:
+    needs: [build-binaries, build-source]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes from CHANGELOG.md
+        id: notes
+        run: |
+          VERSION="${{ steps.ver.outputs.version }}"
+          # Try the [VERSION] section first; fall back to [Unreleased].
+          SECTION=$(awk -v ver="[$VERSION]" '
+            /^## \[/ { if (active) exit; if (index($0, ver) > 0) active = 1 }
+            active { print }
+          ' CHANGELOG.md)
+          if [ -z "$SECTION" ]; then
+            SECTION=$(awk '
+              /^## \[/ { if (active) exit; if (index($0, "[Unreleased]") > 0) active = 1 }
+              active { print }
+            ' CHANGELOG.md)
+          fi
+          {
+            echo "body<<EOF"
+            if [ -n "$SECTION" ]; then
+              printf '%s\n' "$SECTION"
+            else
+              echo "Release ${VERSION}. See [CHANGELOG.md](./CHANGELOG.md) for details."
+            fi
+            echo
+            echo "### Artifacts"
+            echo "- \`svgd-${VERSION}-linux-amd64.tar.gz\` — x86_64 binaries (svgd + svgd-gate)"
+            echo "- \`svgd-${VERSION}-linux-arm64.tar.gz\` — ARM64 binaries (svgd + svgd-gate)"
+            echo "- \`svgd-${VERSION}.tar.gz\` — source tarball for packagers (AUR / distro)"
+            echo
+            echo "### Quick install (binary package, amd64 example)"
+            echo '```sh'
+            echo "tar xzf svgd-${VERSION}-linux-amd64.tar.gz"
+            echo "cd svgd-${VERSION}-linux-amd64"
+            echo "# Install binaries, web UI, JS renderer, configs, systemd units:"
+            echo "sudo install -m755 bin/svgd bin/svgd-gate /usr/local/bin/"
+            echo "sudo install -d /usr/local/share/svgd && sudo cp -r static /usr/local/share/svgd/static"
+            echo "sudo install -d /usr/local/share/svgd/scripts && sudo install -m644 scripts/generate_svg.js /usr/local/share/svgd/scripts/"
+            echo "sudo install -d /etc/svgd && sudo install -m644 config.sample.json /etc/svgd/config.json"
+            echo "sudo install -m644 systemd/svgd.service systemd/svgd-gate.service /etc/systemd/system/"
+            echo "sudo systemctl daemon-reload && sudo systemctl enable --now svgd svgd-gate"
+            echo '```'
+            echo "Then edit /etc/svgd/config.json (rrd.base_path) and review the auth sample."
+            echo "Full post-install steps: see .infra/install-notes.md in the source tarball."
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          find artifacts -name 'svgd-*.tar.gz' -exec cp {} . \;
+          ls -la svgd-*.tar.gz
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          body: ${{ steps.notes.outputs.body }}
+          draft: false
+          prerelease: ${{ contains(steps.ver.outputs.tag, '-') }}
+          files: |
+            svgd-*.tar.gz
+          fail_on_unmatched_files: true

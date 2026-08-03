@@ -47,3 +47,6 @@ demo/rrd/
 
 # mkdocs build output
 site/
+
+# Release dist tarballs (regenerable via `make dist`)
+dist/

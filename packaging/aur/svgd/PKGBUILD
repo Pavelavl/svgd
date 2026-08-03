@@ -1,0 +1,96 @@
+# Maintainer: Pavel Avl <pavelavl@gmail.com>
+# Contributor: Pavel Avl <pavelavl@gmail.com>
+#
+# This PKGBUILD builds the release version of svgd from the source tarball
+# published on GitHub Releases. For a -git variant that tracks master, see the
+# note at the bottom of this file.
+#
+# Build dependencies: base-devel (assumed on the AUR build environment).
+# Runtime: rrdtool (librrd), duktape (libduktape), openssl (libcrypto/libssl).
+
+pkgname=svgd
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Lightweight C monitoring system that renders SVG charts from RRD time-series"
+arch=('i686' 'x86_64' 'aarch64')
+url="https://github.com/Pavelavl/svgd"
+license=('MIT')
+depends=('rrdtool' 'duktape' 'openssl')
+makedepends=()
+checkdepends=()
+optdepends=(
+    'collectd: the external collector that writes the RRD files svgd reads'
+    'rrdcached: RRD caching daemon (recommended for production)'
+)
+backup=(
+    'etc/svgd/config.json'
+    'etc/svgd/datasources.json'
+    'etc/svgd/auth.json'
+)
+# Source tarball is the `make dist` output published on the GitHub Release.
+# To refresh sha256sums after bumping pkgver:  updpkgsums   (or  makepkg -g >> PKGBUILD)
+source=("${pkgname}-${pkgver}.tar.gz::${url}/releases/download/v${pkgver}/${pkgname}-${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "${pkgname}-${pkgver}"
+    # lsrp is flattened into the tarball (no submodule init needed).
+    make build
+}
+
+check() {
+    cd "${pkgname}-${pkgver}"
+    # No `make check` target yet; the upstream test suite needs a running rrdcached
+    # and RRD fixtures, so it is not run here. Build verification = successful build.
+    :
+}
+
+package() {
+    cd "${pkgname}-${pkgver}"
+
+    # Install binaries, web UI, JS renderer, systemd units, and (guarded)
+    # config samples into Arch-standard paths under PREFIX=/usr.
+    make DESTDIR="${pkgdir}" PREFIX=/usr install
+
+    # The shipped systemd units bake in /usr/local/... paths; fix them to /usr
+    # to match PREFIX=/usr used above.
+    sed -i 's|/usr/local/|/usr/|g' \
+        "${pkgdir}/usr/lib/systemd/system/svgd.service" \
+        "${pkgdir}/usr/lib/systemd/system/svgd-gate.service"
+
+    # Create the svgd system user at install time via systemd-sysusers.
+    install -Dm644 /dev/stdin "${pkgdir}/usr/lib/sysusers.d/svgd.conf" <<'EOF'
+u svgd - "svgd service user" - -
+EOF
+
+    # License + docs.
+    install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+    install -Dm644 readme.md "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+    install -Dm644 CHANGELOG.md "${pkgdir}/usr/share/doc/${pkgname}/CHANGELOG.md"
+    install -Dm644 .infra/install-notes.md "${pkgdir}/usr/share/doc/${pkgname}/install-notes.md"
+}
+
+# ---------------------------------------------------------------------------
+# Install layout (PREFIX=/usr):
+#   /usr/bin/svgd                       backend binary
+#   /usr/bin/svgd-gate                  HTTP gateway + web UI binary
+#   /usr/share/svgd/static/             web UI assets
+#   /usr/share/svgd/scripts/generate_svg.js   JS chart renderer (Duktape)
+#   /etc/svgd/config.json               backend config (sample, backed up)
+#   /etc/svgd/datasources.json          gate backend list (sample, backed up)
+#   /etc/svgd/auth.json                 gate auth secrets (sample, backed up)
+#   /usr/lib/systemd/system/svgd.service
+#   /usr/lib/systemd/system/svgd-gate.service
+#   /usr/lib/sysusers.d/svgd.conf       creates the svgd user on install
+#
+# Post-install:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now svgd svgd-gate
+# Edit /etc/svgd/config.json (rrd.base_path, etc.) before starting.
+#
+# --- -git variant (not maintained here) ---
+# To track master instead of a release tag, change `source` to:
+#   source=("${pkgname}::git+${url}.git")
+#   makedepends+=('git')
+#   pkgver() { cd "$pkgname"; git describe --long --tags | sed 's/^v//;s/-/.r/;s/-g/+/'; }
+# and drop the release-tarball sha256sums.

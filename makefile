@@ -126,6 +126,60 @@ install: build
 	@echo "    systemctl daemon-reload && systemctl enable --now svgd svgd-gate"
 
 # ============================================================
+# DIST (source tarball for packagers)
+# ============================================================
+
+# Version - single source of truth for releases. Prefer `git describe` on the
+# most recent reachable semver tag (e.g. v0.1.0, or v0.1.0-5-g<sha> for commits
+# past the tag); for untagged dev builds it falls back to the short commit hash.
+# Override with `make VERSION=foo dist` to force a value.
+VERSION ?= $(shell git describe --tags --always 2>/dev/null)
+ifeq ($(strip $(VERSION)),)
+VERSION := 0.0.0-dev
+endif
+
+# Tarballs use the bare semver (strip a leading 'v').
+DIST_VERSION := $(VERSION:v%=%)
+DIST_NAME    := svgd-$(DIST_VERSION)
+DIST_ROOT    := dist
+DIST_DIR     := $(DIST_ROOT)/$(DIST_NAME)
+DIST_TARBALL := $(DIST_ROOT)/$(DIST_NAME).tar.gz
+
+.PHONY: dist dist-clean
+
+# Produce a distributable source tarball `svgd-<version>.tar.gz` for packagers
+# (AUR / distro maintainers). Stages a clean snapshot of git-tracked files via
+# `git archive` (so gitignored secrets like auth.json never leak in), flattens
+# the lsrp submodule into the tree (submodules can't be `git submodule init`'d
+# from a tarball), records the version, and tars it under a top-level
+# svgd-<version>/ directory. svgd-collect is intentionally excluded (separate
+# project with its own release cycle).
+dist:
+	@echo "=== Staging $(DIST_NAME) (version $(VERSION)) ==="
+	@rm -rf $(DIST_DIR)
+	@mkdir -p $(DIST_DIR)
+	@# 1. Clean snapshot of tracked files (excludes auth.json, config.json, *.o).
+	@git archive --format=tar HEAD | tar -x -C $(DIST_DIR)
+	@# 2. Flatten the lsrp submodule (git archive does not recurse into submodules).
+	@rm -rf $(DIST_DIR)/lsrp
+	@mkdir -p $(DIST_DIR)/lsrp
+	@(cd $(LSRP_DIR) && git archive --format=tar HEAD) | tar -x -C $(DIST_DIR)/lsrp
+	@# 3. Drop stale submodule pointer and the empty svgd-collect/ gitlink dir
+	@#    (lsrp is now a regular dir; svgd-collect isn't shipped - separate project).
+	@rm -f $(DIST_DIR)/.gitmodules
+	@rm -rf $(DIST_DIR)/svgd-collect
+	@# 4. Record the version for downstream consumers (PKGBUILD, makepkg, etc.).
+	@printf '%s\n' "$(VERSION)" > $(DIST_DIR)/VERSION
+	@# 5. Reproducible-ish tar (root ownership, sorted) under a top-level dir.
+	@tar --owner=0 --group=0 --sort=name -czf $(DIST_TARBALL) -C $(DIST_ROOT) $(DIST_NAME)
+	@echo "=== Created $(DIST_TARBALL) ==="
+	@echo "    Contents (first 25 entries):"
+	@tar tzf $(DIST_TARBALL) | head -25 | sed 's/^/      /'
+
+dist-clean:
+	rm -rf $(DIST_ROOT)
+
+# ============================================================
 # RUN
 # ============================================================
 

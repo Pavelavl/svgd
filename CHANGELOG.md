@@ -33,6 +33,18 @@ they move to a versioned section on release.
   unchanged (drop-in). 9 metric readers (cpu, load, uptime, memory, swap,
   interface, disk, df, processes); DS names/types/RRA verified against real
   collectd output. Removes the dependency on the stalled collectd project.
+- **Release packaging** — `make dist` produces a distributable source tarball
+  (`svgd-<version>.tar.gz`; version derived from `git describe --tags --always`)
+  bundling the C source, the JS chart renderer, the web UI, config samples, and
+  systemd units, with the `lsrp` submodule flattened in so packagers do not need
+  `git submodule init`. A new `.github/workflows/release.yml` (triggered by `v*`
+  semver tag pushes) cross-compiles Linux amd64 + arm64 binary packages using the
+  same Docker toolchain as `deploy.yml`, builds the source tarball, and publishes
+  a GitHub Release whose notes are extracted from this CHANGELOG (version
+  section, falling back to `[Unreleased]`). An AUR `PKGBUILD`
+  (`packaging/aur/svgd/PKGBUILD`) builds from the release tarball and installs to
+  Arch-standard paths (`/usr/bin`, `/etc/svgd`, `/usr/lib/systemd/system`) with a
+  `sysusers.d` fragment for the `svgd` service user.
 
 ### Changed
 - _(nothing yet)_
