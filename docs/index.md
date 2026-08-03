@@ -103,6 +103,8 @@ Full steps, configuration, and the `svgd-collect` drop-in collector are on the
 
 ## Project status
 
-`svgd` is approaching its first public release. See the
-[Roadmap](roadmap.md) for what is done, what is in progress, and what is
-planned (Prometheus `/metrics`, packaging, pluginable reader, and more).
+**v0.1.0** is the first public release — a self-contained stack (renderer +
+HTTP gateway + web UI + the optional `svgd-collect` collector) with Grafana and
+Prometheus integration, release packaging, and this documentation site. See the
+[Roadmap](roadmap.md) for what is planned next (pluginable reader, metric
+gallery, distribution extras, PR campaign).

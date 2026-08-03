@@ -5,46 +5,13 @@ All notable changes to **svgd** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> **Note on versioning:** svgd does not yet follow a strict release cadence.
-> Version numbers below are preliminary and used to track milestones; the
-> authoritative source of changes between releases is the `git log` on
-> `master`. Once a `1.0.0` is cut, this changelog becomes the canonical
-> per-release summary.
-
 ## [Unreleased]
 
 Tracked on the `master` branch. New entries are added here as features land;
 they move to a versioned section on release.
 
 ### Added
-- **Grafana datasource compatibility** — svgd-gate now serves the simpod /
-  classic-SimpleJson structured datasource contract at `/grafana/*`
-  (`GET /grafana`, `POST /grafana/search`, `POST /grafana/query`,
-  `POST /grafana/annotations`). A Grafana instance can plot svgd metrics as
-  time-series with zero per-panel configuration. The gate forwards requests to
-  the backend, which parses the query body with its existing Duktape engine and
-  assembles Grafana time-series JSON — no new dependencies. Reuses the gate's
-  existing Bearer-token auth (set `Authorization: Bearer <token>` as a custom
-  header in the datasource config, Access = Server). Gate request buffer raised
-  to 64 KB to accept Grafana POST bodies.
-- **svgd-collect submodule** — a lightweight standalone C collector (submodule
-  `svgd-collect/`) that replaces collectd as the data source. Reads `/proc`/`/sys`
-  and writes RRDs in the identical collectd layout, so svgd's `config.json` works
-  unchanged (drop-in). 9 metric readers (cpu, load, uptime, memory, swap,
-  interface, disk, df, processes); DS names/types/RRA verified against real
-  collectd output. Removes the dependency on the stalled collectd project.
-- **Release packaging** — `make dist` produces a distributable source tarball
-  (`svgd-<version>.tar.gz`; version derived from `git describe --tags --always`)
-  bundling the C source, the JS chart renderer, the web UI, config samples, and
-  systemd units, with the `lsrp` submodule flattened in so packagers do not need
-  `git submodule init`. A new `.github/workflows/release.yml` (triggered by `v*`
-  semver tag pushes) cross-compiles Linux amd64 + arm64 binary packages using the
-  same Docker toolchain as `deploy.yml`, builds the source tarball, and publishes
-  a GitHub Release whose notes are extracted from this CHANGELOG (version
-  section, falling back to `[Unreleased]`). An AUR `PKGBUILD`
-  (`packaging/aur/svgd/PKGBUILD`) builds from the release tarball and installs to
-  Arch-standard paths (`/usr/bin`, `/etc/svgd`, `/usr/lib/systemd/system`) with a
-  `sysusers.d` fragment for the `svgd` service user.
+- _(nothing yet)_
 
 ### Changed
 - _(nothing yet)_
@@ -55,61 +22,100 @@ they move to a versioned section on release.
 ### Security
 - _(nothing yet)_
 
-## [0.1.0] — initial public release
+## [0.1.0] — 2026-08-04
 
 First public, benchmarked release of the lightweight C monitoring system.
-Rendering is data-driven (config + embedded JS) and resource use stays near
-~0% CPU / ~10 MB RAM under load. See `readme.md` for the full benchmark
-comparison against Graphite and RRDtool CGI.
+`svgd` renders SVG charts from RRD time-series files through a data-driven
+(config + embedded JS) pipeline that holds ~0% CPU / ~10 MB RAM under load. The
+release ships a full self-contained stack — renderer + HTTP gateway + web UI +
+optional `svgd-collect` collector — plus Grafana and Prometheus integration,
+packaging, and documentation.
 
 ### Added
 - **Open-source packaging & community** — MIT `LICENSE`; English-primary
-  `readme.md` with badges, a "Why svgd?" highlights section, and benchmark
-  tables preserved verbatim, plus a Russian mirror at `readme.ru.md`;
-  `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`; GitHub issue/PR
-  templates under `.github/`.
-- **Installation & deployment** — `make install` target (honors `PREFIX`/
-  `DESTDIR`, installs binaries/static UI/JS, guarded non-clobbering config
-  install), systemd units for `svgd` and `svgd-gate` (`.infra/systemd/`),
-  and post-install notes (`.infra/install-notes.md`).
-- **Backend (`src/`, `svgd` binary)** — reads RRD time-series files and renders
-  SVG charts. Selectable transport via `config.json` → `server.protocol`:
-  - **LSRP mode** (default): binary wire protocol over TCP, thread pool, and
-    caching (RRD data TTL hash table + per-thread Duktape JS contexts,
-    pre-warmed at startup). This is the high-throughput path.
-  - **HTTP mode**: single-threaded plain-HTTP fallback. Caching is disabled in
-    this mode (guarded by `protocol != "http"`).
+  `readme.md` (badges, "Why svgd?" highlights, benchmark tables) + Russian
+  mirror `readme.ru.md`; `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`,
+  `SECURITY.md`; GitHub issue/PR templates under `.github/`.
+- **Backend (`src/`, `svgd` binary)** — reads RRD time-series and renders SVG.
+  Selectable transport via `config.json` → `server.protocol`:
+  - **LSRP mode** (default): binary wire protocol over TCP, thread pool, caching
+    (RRD-data TTL hash table + per-thread Duktape JS contexts pre-warmed at
+    startup). The high-throughput path.
+  - **HTTP mode**: single-threaded plain-HTTP fallback (caching disabled).
   - Shared business logic in `src/handler.c` (`handler_process()`).
 - **SVG rendering in JavaScript** — the Duktape engine runs
   `src/scripts/generate_svg.js` against serialized `MetricData`. Chart
-  appearance and behavior are controlled from JS, the primary extensibility
-  surface, without recompiling C.
-- **HTTP gateway + web UI (`gate/`, `svgd-gate` binary)**:
-  - Serves the browser UI from `gate/static/` (dynamic panels, time-range and
-    auto-refresh controls, search/filter, fullscreen, SVG export, light/dark
-    theme, dashboard export/import, HTML snapshots).
-  - Proxies metric requests to the backend, selected by a `?datasource=`
-    query param or a configured default.
-  - **Multi-datasource routing**: one gate can front multiple backends.
-    Datasources are loaded from `datasources.json` and managed at runtime via
-    the `/_datasources` CRUD API.
-- **Data-driven metrics** — `config.json` → `metrics[]` maps an `endpoint` to
-  an `rrd_path`. Paths may contain `%s` for a URL path parameter
-  (`requires_param: true`, e.g. `GET /ram/process/postgres`). Parsed in
-  `src/cfg.c`, applied in `src/handler.c`. Supports value transforms
-  (`divide`, `sum`, `multiply`) and percentage formatting.
+  appearance and behavior are controlled from JS without recompiling C — the
+  primary extensibility surface.
+- **HTTP gateway + web UI (`gate/`, `svgd-gate` binary)** — serves the browser
+  UI from `gate/static/` (dynamic panels, time-range/auto-refresh controls,
+  search/filter, fullscreen, SVG export, light/dark theme, dashboard
+  export/import, HTML snapshots); proxies metric requests to the backend
+  selected by `?datasource=` or a configured default; **multi-datasource
+  routing** (one gate fronts N backends) with runtime CRUD via `/_datasources`.
+- **Grafana datasource compatibility** — `svgd-gate` serves the
+  simpod / classic-SimpleJson structured datasource contract at `/grafana/*`
+  (`search`, `query`, `annotations`, connection check). Verified end-to-end
+  with a real Grafana container. The gate is a thin forwarder; JSON assembly
+  happens in the backend's existing Duktape engine — no new dependencies. Gate
+  request buffer raised to 64 KB.
+- **Data-driven metrics** — `config.json` → `metrics[]` maps an `endpoint` to an
+  `rrd_path`; paths may contain `%s` for a URL path parameter
+  (`requires_param: true`, e.g. `GET /ram/process/postgres`). Supports value
+  transforms (`divide`, `sum`, `multiply`) and percentage formatting. Parsed in
+  `src/cfg.c`, applied in `src/handler.c`.
 - **Optional JWT-like auth (HMAC-SHA256 via OpenSSL)** — configured by
   `gate/auth/auth.json`. Protected API endpoints require a `Bearer` token;
   static files and `/_auth/*` are always public. Off by default (endpoints
   return 401 when `auth.json` is absent).
+- **`svgd-collect` — drop-in collector (submodule `svgd-collect/`)** — a
+  standalone C collector
+  ([`Pavelavl/svgd-collect`](https://github.com/Pavelavl/svgd-collect)) that
+  replaces collectd as the data source. Reads `/proc`/`/sys` and writes RRDs in
+  the identical collectd layout, so `config.json` works unchanged (drop-in).
+  **11 readers** (cpu, load, uptime, memory, swap, interface, disk, df,
+  processes, thermal, tcpconns); DS names/types/RRA verified against real
+  collectd output. Optional **rrdcached routing** (`collect.json` →
+  `rrdcached_addr`; RRD creation stays direct, hot-path updates are routed,
+  with dead-daemon fallback to direct write), **MIN/MAX RRAs** alongside
+  AVERAGE, reader **error logging**, and a testable reader **registry**. Removes
+  the dependency on the stalled collectd project (last stable 5.12.0, 2021).
+- **Prometheus `/metrics` exposition** — `svgd-collect` exposes an opt-in
+  `/metrics` endpoint in
+  [text exposition format](https://prometheus.io/docs/instrumenting/exposition_formats/)
+  (set `metrics_addr` in `collect.json`). Plain-C-sockets HTTP listener on a
+  dedicated thread; gauge/counter types are derived from the collectd DS
+  definitions; a threadsafe two-buffer snapshot of the last collection cycle
+  backs each scrape so collection is never blocked. Makes the stack visible to
+  Prometheus / Grafana / any modern observability consumer.
+- **One-command quickstart demo** — `docker compose -f docker-compose.demo.yml
+  up` (or `make demo`) yields a working dashboard on `:8080` with **no collectd,
+  no rrdcached, no manual config**. An `rrd-init` one-shot regenerates fresh
+  demo RRDs on every start (via `demo/generate-rrd.sh`) so charts never go
+  stale. Login password `demo`.
+- **Documentation site** — mkdocs-material site (`docs/`, `mkdocs.yml`) with
+  landing, architecture, quickstart, installation, configuration pages, and an
+  honest **comparison** vs Monitorix/Munin/Netdata; deployed to GitHub Pages via
+  `.github/workflows/docs.yml`. Public `ROADMAP.md`.
+- **Installation & deployment** — `make install` (honors `PREFIX`/`DESTDIR`,
+  non-clobbering config install) + systemd units for `svgd` and `svgd-gate`
+  (`.infra/systemd/`) + post-install notes (`.infra/install-notes.md`).
+- **Release packaging** — `make dist` produces a distributable source tarball
+  (`svgd-<version>.tar.gz`; version from `git describe --tags --always`, `lsrp`
+  flattened in so packagers need no `git submodule init`). A new
+  `.github/workflows/release.yml` (triggered by `v*` semver-tag pushes)
+  cross-compiles Linux **amd64 + arm64** binary packages using the same Docker
+  toolchain as `deploy.yml`, builds the source tarball, and publishes a GitHub
+  Release whose notes are extracted from this CHANGELOG. An AUR `PKGBUILD`
+  (`packaging/aur/svgd/PKGBUILD`) builds from the release tarball and installs
+  to Arch-standard paths with a `sysusers.d` fragment for the `svgd` service
+  user.
 - **Benchmarking harness** — `make test-bench-svgd` (svgd alone) and
   `make test-bench` (svgd vs RRDtool CGI vs Graphite, via Docker), plus
   `make generate-charts` / `make generate-report`. Reported throughput up to
-  ~2830 RPS at ~0% CPU / ~10 MB RAM, with ~28x lower latency under load vs
-  early revisions and a ~3–5x throughput gain over the benchmark window.
-- **Cross-compilation and deployment** — `make ARCH=arm64 build` and the
-  deploy workflow produce a split-architecture release (ARM64 gate, x86_64
-  backends).
+  ~2830 RPS at ~0% CPU / ~10 MB RAM.
+- **Cross-compilation and deployment** — `make ARCH=arm64 build`; `deploy.yml`
+  produces a split-architecture release (ARM64 gate, x86_64 backends).
 - **Test suites** — Go integration tests (`make test`, `make test-e2e`,
   `make test-load`) in a Go workspace under `tests/`, and Python/Selenium UI
   tests (`make test-ui`). Tests require `REPO_ROOT`.
@@ -117,11 +123,15 @@ comparison against Graphite and RRDtool CGI.
   `docker-compose.multi.yml` for the multi-datasource demo.
 
 ### Known limitations
-- HTTP backend mode is single-threaded and has caching disabled; use LSRP
-  mode for production throughput.
-- svgd does not terminate TLS — deploy behind a reverse proxy in production.
-- The `lsrp/` directory is a git submodule; protocol changes belong upstream
-  at [Pavelavl/lsrp](https://github.com/Pavelavl/lsrp), not in this repo.
+- HTTP backend mode is single-threaded with caching disabled; use LSRP mode for
+  production throughput.
+- `svgd` does not terminate TLS — deploy behind a reverse proxy in production.
+- The Prometheus `/metrics` endpoint has no TLS/auth (matches `node_exporter`
+  defaults); bind it to a private interface or protect it with a firewall.
+- `svgd-collect`'s `thermal` and `tcpconns` readers have no reference collectd
+  RRDs in this setup; verified structurally and live, not byte-for-byte.
+- The `lsrp/` directory is a git submodule; protocol changes belong upstream at
+  [Pavelavl/lsrp](https://github.com/Pavelavl/lsrp), not in this repo.
 
 [Unreleased]: https://github.com/Pavelavl/svgd/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/Pavelavl/svgd/releases/tag/v0.1.0

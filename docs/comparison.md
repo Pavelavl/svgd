@@ -92,10 +92,6 @@ for any of the tools above.
   notifications, anomaly detection, or on-call routing, use Netdata or a
   Prometheus + Alertmanager stack. Alerting is on the roadmap but not the
   focus.
-- **No Prometheus `/metrics` exposition (yet).** `svgd` speaks SVG and
-  Grafana-JSON. A Prometheus text exposition endpoint is planned; until then,
-  `svgd` is not a drop-in Prometheus exporter. (See the
-  [Roadmap](roadmap.md).)
 - **Smaller community and plugin base.** `svgd` is a young project. There is no
   plugin marketplace, no large gallery of community dashboards, and a small
   contributor base compared to Munin/Netdata.
@@ -144,4 +140,5 @@ collectd's ~200 plugins for a ~2k-line C footprint in the spirit of `svgd`'s
 | **Size** | very large C/C++ codebase | ~2k lines of C |
 | **Status** | stalled (last stable 2021) | actively developed |
 | **RRD layout** | canonical | **identical** (verified against real collectd output) |
+| **Prometheus `/metrics`** | via `write_prometheus` plugin | **built-in** (opt-in `metrics_addr`) |
 | **Use it if** | you need its plugin breadth or have it deployed | you want a self-contained `svgd` stack with no collectd dependency |

@@ -549,7 +549,7 @@ collectd/
 
 ### svgd-collect — lightweight drop-in replacement for collectd
 
-Instead of collectd, you can use **svgd-collect** (submodule [`svgd-collect/`](svgd-collect/)) — a small standalone C collector that reads `/proc`/`/sys` and writes the **same RRD files in the same layout**, so svgd works with **no `config.json` changes** (drop-in). It covers the same system metrics (cpu, load, memory, swap, uptime, disk, interface, filesystem, processes) at a fraction of collectd's footprint, and removes the dependency on collectd (whose last stable release was 2021).
+Instead of collectd, you can use **svgd-collect** (submodule [`svgd-collect/`](svgd-collect/)) — a small standalone C collector that reads `/proc`/`/sys` and writes the **same RRD files in the same layout**, so svgd works with **no `config.json` changes** (drop-in). It covers the same system metrics (cpu, load, memory, swap, uptime, disk, interface, filesystem, processes, thermal, tcp connections) at a fraction of collectd's footprint, and removes the dependency on collectd (whose last stable release was 2021). It can additionally expose a **Prometheus `/metrics`** endpoint (set `metrics_addr` in `collect.json`), making the stack visible to Prometheus / Grafana.
 
 ```bash
 git submodule update --init --recursive   # fetch svgd-collect/ (and lsrp/)

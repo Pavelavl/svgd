@@ -28,88 +28,102 @@ The roadmap follows three themes, in priority order:
 
 ### Open-source foundation (v0.1.0)
 
-- [x] MIT `LICENSE`.
-- [x] English-primary `readme.md` with badges, a "Why svgd?" highlights section,
-      and benchmark tables preserved verbatim; Russian mirror at `readme.ru.md`.
+- [x] MIT `LICENSE`; English-primary `readme.md` with badges, a "Why svgd?"
+      highlights section, and benchmark tables; Russian mirror `readme.ru.md`.
 - [x] Community files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`,
       `CHANGELOG.md`; GitHub issue / PR templates under `.github/`.
 - [x] `make install` (honors `PREFIX`/`DESTDIR`, non-clobbering config install)
       and systemd units for `svgd` and `svgd-gate` (`.infra/systemd/`).
-- [x] `.gitignore` whitelist for project docs; `duktape-dev` package name fixed
-      in install instructions.
 
 ### Grafana datasource compatibility
 
-- [x] `svgd-gate` serves the simpod / classic SimpleJson structured datasource
+- [x] `svgd-gate` serves the simpod / classic-SimpleJson structured datasource
       contract at `/grafana/*` (`search`, `query`, `annotations`, connection
       check). Verified end-to-end with a real Grafana container. The gate is a
       thin forwarder; JSON assembly happens in the backend's existing Duktape
       engine — no new dependencies.
 
-### svgd-collect — drop-in collector (Phase 1)
+### svgd-collect — self-contained drop-in collector
 
 - [x] Standalone C collector ([`Pavelavl/svgd-collect`](https://github.com/Pavelavl/svgd-collect)),
-      now a submodule at `svgd-collect/`. Reads `/proc`/`/sys` and writes RRDs
-      in the identical collectd layout, so `config.json` is unchanged.
-- [x] Type dictionary (16 collectd types), `metric_t` model, collectd-layout
-      path builder, RRA builder (ported from collectd's `rra_get`), librrd
-      writer, `cpu` reader (`/proc/stat` → `cpu-total/percent-active.rrd`).
-- [x] Readers: load, uptime, memory, swap, interface, disk, df, processes +
-      reader registry + multi-reader integration. DS names/types/RRA verified
-      against real collectd RRD output.
-- [x] Connected as submodule in `svgd`; README drop-in section + CHANGELOG
-      updated.
+      now a submodule at `svgd-collect/`. Reads `/proc`/`/sys` and writes RRDs in
+      the identical collectd layout, so `config.json` is unchanged (drop-in).
+- [x] **11 readers**: cpu, load, uptime, memory, swap, interface, disk, df,
+      processes, thermal, tcpconns. DS names/types/RRA verified against real
+      collectd RRD output.
+- [x] Optional **rrdcached routing** (`collect.json` → `rrdcached_addr`; RRD
+      creation stays direct, hot-path updates routed, dead-daemon fallback),
+      **MIN/MAX RRAs** alongside AVERAGE, reader **error logging**, and a
+      testable reader **registry**.
+
+### Prometheus `/metrics` exposition
+
+- [x] `svgd-collect` exposes an opt-in `/metrics` endpoint in
+      [text exposition format](https://prometheus.io/docs/instrumenting/exposition_formats/)
+      (set `metrics_addr` in `collect.json`). Plain-C-sockets HTTP listener on a
+      dedicated thread; gauge/counter types derived from the collectd DS
+      definitions; threadsafe two-buffer snapshot of the last collection cycle.
+      Makes the stack visible to Prometheus / Grafana / any modern observability
+      consumer. (Roadmap item P1-8.)
+
+### One-command quickstart demo
+
+- [x] `docker compose -f docker-compose.demo.yml up` (or `make demo`) yields a
+      working dashboard on `:8080` with **no collectd, no rrdcached, no manual
+      config**. An `rrd-init` one-shot regenerates fresh demo RRDs on every
+      start, so charts never go stale. (Roadmap item P1-5.)
+
+### Documentation site & roadmap
+
+- [x] mkdocs-material site (`docs/`, `mkdocs.yml`) — landing, architecture,
+      quickstart, installation, configuration, and an honest comparison vs
+      Monitorix / Munin / Netdata; deployed to GitHub Pages via
+      `.github/workflows/docs.yml`. (Roadmap items P2-12 / P2-13.)
+- [x] Public `ROADMAP.md` (this file). (Roadmap item P2-14.)
+
+### Release packaging
+
+- [x] `make dist` source tarball (version from `git describe`; `lsrp` flattened
+      so packagers need no `git submodule init`).
+- [x] `.github/workflows/release.yml` — on `v*` semver tags, cross-compiles
+      Linux **amd64 + arm64** binary packages + the source tarball and publishes
+      a GitHub Release with CHANGELOG-derived notes. (Roadmap item P1-9.)
+- [x] AUR `PKGBUILD` (`packaging/aur/svgd/PKGBUILD`) — builds from the release
+      tarball to Arch-standard paths with a `sysusers.d` fragment. (Roadmap item
+      P1-10.)
 
 ---
 
 ## :construction: In progress
 
-- [ ] **Push `master` to GitHub** (svgd itself is still local; `svgd-collect` is
-      already on its remote) with the `v0.1.0` tag.
-- [ ] **svgd-collect completion** — `thermal` + `tcpconns` readers (no reference
-      RRDs in the current collectd layout, built from the `reader_t` template);
-      rrdcached routing in the writer; `MIN`/`MAX` RRAs; reader-error logging;
-      registry edge-case tests.
-- [ ] **Quickstart demo** — a `docker-compose` with pre-populated RRD data so
-      `docker compose up` yields a working dashboard on `:8080` with no manual
-      collectd/rrdcached setup. (Roadmap item P1-5.)
-- [ ] **This documentation site** (mkdocs + GitHub Pages) and the comparison
-      page vs Monitorix / Munin / Netdata. (Roadmap items P2-12 / P2-13.)
+- _(nothing major — v0.1.0 is cut and tagged.)_
 
 ---
 
 ## :bulb: Planned
 
-### Ecosystem integration
+### Ecosystem & visualization
 
-- [ ] **Prometheus `/metrics` exposition** — emit the standard text exposition
-      format from `svgd-collect` (or the gate), making the stack visible to
-      Prometheus / Grafana / any modern observability consumer. (P1-8.)
 - [ ] **Pluginable reader (Phase 2)** — introduce a `metric_source_t` seam at
       `src/rrd/reader.c:rrd_fetch_data()` (already a clean boundary) so `svgd`
       can read from RRD **and** live `/proc` **and** Prometheus text-exposition.
-      Turns `svgd` from an "RRD viewer" into a universal lightweight
-      visualizer. (P2-12.)
-- [ ] **Metric gallery / recipes** — ready-made `config.json` snippets for
-      common scenarios (Postgres, Nginx, a Docker host, a Raspberry Pi) and
-      community chart themes via `generate_svg.js`. (P3-16.)
+      Turns `svgd` from an "RRD viewer" into a universal lightweight visualizer.
+      (Roadmap item P2-12.)
+- [ ] **Metric gallery / recipes** — ready-made `config.json` snippets for common
+      scenarios (Postgres, Nginx, a Docker host, a Raspberry Pi) and community
+      chart themes via `generate_svg.js`. (Roadmap item P3-16.)
 
-### Packaging & releases
+### Distribution extras
 
-- [ ] **GitHub Releases with semver tags** and a per-release changelog
-      (benchmarks in the release notes). (P1-9.)
-- [ ] **Distribution packages** — AUR (Arch, the author's native platform and
-      CI target) plus release tarballs at minimum; Homebrew tap and `.deb`/`.rpm`
-      as follow-ons. (P1-10.)
+- [ ] **Homebrew tap** and **`.deb` / `.rpm`** packages (AUR + release tarballs
+      already ship). Release **artifact signing** (`cosign` / GPG).
 
-### Trust & growth
+### Growth
 
-- [ ] **Public roadmap surfaced in-repo** (this file) and via GitHub Projects.
-      (P2-14.)
-- [ ] **PR campaign** — Show HN, r/selfhosted, r/homelab, Хабр (Russian
-      audience), dev.to. Deliberately **last**: launched only after push,
-      quickstart, packaging, and docs are in place, so incoming traffic lands on
-      something runnable. (P2-15.)
+- [ ] **PR campaign** — Show HN, r/selfhosted, r/homelab, Хабr (Russian
+      audience), dev.to. Deliberately **last**: launched only after the release,
+      quickstart, packaging, and docs are confirmed working for a stranger, so
+      incoming traffic lands on something runnable. (Roadmap item P2-15.)
 
 ---
 
