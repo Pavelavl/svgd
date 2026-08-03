@@ -2,3 +2,6 @@
 	path = lsrp
 	url = https://github.com/Pavelavl/lsrp
 	branch = master
+[submodule "svgd-collect"]
+	path = svgd-collect
+	url = https://github.com/Pavelavl/svgd-collect.git

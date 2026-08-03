@@ -27,6 +27,12 @@ they move to a versioned section on release.
   existing Bearer-token auth (set `Authorization: Bearer <token>` as a custom
   header in the datasource config, Access = Server). Gate request buffer raised
   to 64 KB to accept Grafana POST bodies.
+- **svgd-collect submodule** — a lightweight standalone C collector (submodule
+  `svgd-collect/`) that replaces collectd as the data source. Reads `/proc`/`/sys`
+  and writes RRDs in the identical collectd layout, so svgd's `config.json` works
+  unchanged (drop-in). 9 metric readers (cpu, load, uptime, memory, swap,
+  interface, disk, df, processes); DS names/types/RRA verified against real
+  collectd output. Removes the dependency on the stalled collectd project.
 
 ### Changed
 - _(nothing yet)_

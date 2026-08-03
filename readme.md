@@ -525,6 +525,18 @@ collectd/
     └── uptime.conf
 ```
 
+### svgd-collect — lightweight drop-in replacement for collectd
+
+Instead of collectd, you can use **svgd-collect** (submodule [`svgd-collect/`](svgd-collect/)) — a small standalone C collector that reads `/proc`/`/sys` and writes the **same RRD files in the same layout**, so svgd works with **no `config.json` changes** (drop-in). It covers the same system metrics (cpu, load, memory, swap, uptime, disk, interface, filesystem, processes) at a fraction of collectd's footprint, and removes the dependency on collectd (whose last stable release was 2021).
+
+```bash
+git submodule update --init --recursive   # fetch svgd-collect/ (and lsrp/)
+cd svgd-collect && make build              # → bin/svgd-collect
+./bin/svgd-collect collect.json           # writes RRDs to the dir configured in collect.json (point it at rrd.base_path)
+```
+
+DS names, data-source types, RRA configuration, and file layout are verified against real collectd output, so charts are identical.
+
 ---
 
 ## Testing
