@@ -1,3 +1,88 @@
+// ============================================================================
+// Theme palettes
+// ----------------------------------------------------------------------------
+// Charts are coloured by one of these palettes. The active theme is chosen by
+// the C caller via options.theme (which in turn comes from the ?theme= query
+// parameter or the "server.theme" config.json field — see docs/gallery.md).
+//
+// To add a new theme: append a key here and it is immediately usable as
+// ?theme=<name> / "server.theme": "<name>" with NO C recompile. That is the
+// whole point of doing rendering in JS — appearance is data, not code.
+// ============================================================================
+var THEMES = {
+    // Default. Exact values the dashboard (gate/static/script.js) matches on,
+    // so the client-side theme switcher keeps working unchanged.
+    light: {
+        background: '#ffffff',
+        gridLines: '#e2e8f0',
+        text: '#4a5568',
+        textPrimary: '#1a202c',
+        axis: '#64748b',
+        series: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'],
+        seriesWidth: 2,
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        border: '#e2e8f0',
+        accent: '#3b82f6',
+        positive: '#10b981',
+        negative: '#ef4444',
+        neutral: '#6b7280',
+        sparkline: '#3b82f6',
+        tooltipFill: '#ffffff',
+        tooltipOpacity: 0.98,
+        tooltipStroke: '#e2e8f0'
+    },
+    // Matches the dark palette of gate/static/script.js.
+    dark: {
+        background: '#1f2023',
+        gridLines: '#2d2e32',
+        text: '#9fa6b2',
+        textPrimary: '#ffffff',
+        axis: '#9fa6b2',
+        series: ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6'],
+        seriesWidth: 2,
+        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        border: '#2d2e32',
+        accent: '#60a5fa',
+        positive: '#34d399',
+        negative: '#f87171',
+        neutral: '#9ca3af',
+        sparkline: '#60a5fa',
+        tooltipFill: '#000000',
+        tooltipOpacity: 0.9,
+        tooltipStroke: '#2d2e32'
+    },
+    // Maximum legibility (WCAG-minded): black canvas, pure white/yellow ink,
+    // thicker strokes, monospace. Intended for accessibility and print.
+    'high-contrast': {
+        background: '#000000',
+        gridLines: '#ffffff',
+        text: '#ffffff',
+        textPrimary: '#ffff00',
+        axis: '#ffffff',
+        series: ['#ffff00', '#00ffff', '#ff00ff', '#00ff00', '#ff0000', '#ffffff'],
+        seriesWidth: 3,
+        fontFamily: "'Courier New', Courier, monospace",
+        border: '#ffffff',
+        accent: '#ffff00',
+        positive: '#00ff00',
+        negative: '#ff0000',
+        neutral: '#ffffff',
+        sparkline: '#ffff00',
+        tooltipFill: '#000000',
+        tooltipOpacity: 1.0,
+        tooltipStroke: '#ffffff'
+    }
+};
+
+// Resolve a theme name to a palette. Unknown / missing -> light. Case-insensitive.
+function resolveTheme(name) {
+    if (typeof name === 'string' && name) {
+        var key = name.toLowerCase();
+        if (THEMES[key]) return THEMES[key];
+    }
+    return THEMES.light;
+}
+
 function generateSVG(series, options) {
     // Validate inputs
     if (typeof series === 'undefined' || typeof options === 'undefined') {
@@ -27,18 +112,11 @@ function generateSVG(series, options) {
     var labelSize = Math.max(10, Math.min(14, width * 0.014));
     var tickSize = Math.max(10, Math.min(12, width * 0.012));
 
-    // Light theme colors
-    var colors = {
-        background: '#ffffff',
-        gridLines: '#e2e8f0',
-        text: '#4a5568',
-        textPrimary: '#1a202c',
-        axis: '#64748b',
-        series: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899']
-    };
+    // Theme colours — light / dark / high-contrast. See resolveTheme().
+    var colors = resolveTheme(options.theme);
 
     var svg = [];
-    svg.push('<svg width="100%" height="100%" viewBox="0 0 ', width, ' ', height, '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">');
+    svg.push('<svg width="100%" height="100%" viewBox="0 0 ', width, ' ', height, '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="font-family: ', colors.fontFamily, ';">');
     svg.push('<rect width="100%" height="100%" fill="', colors.background, '"/>');
 
     if (!series || !Array.isArray(series) || series.length === 0) {
@@ -287,7 +365,7 @@ function generateSVG(series, options) {
             svg.push('</linearGradient></defs>');
             
             svg.push('<path d="', areaPath.join(''), '" fill="url(#', gradientId, ')"/>');
-            svg.push('<path d="', linePath.join(''), '" stroke="', color, '" fill="none" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>');
+            svg.push('<path d="', linePath.join(''), '" stroke="', color, '" fill="none" stroke-width="', colors.seriesWidth, '" stroke-linejoin="round" stroke-linecap="round"/>');
         }
         
         // Draw hover points
@@ -353,7 +431,7 @@ function generateSVG(series, options) {
 
     // Tooltip group
     svg.push('<g id="tooltip" visibility="hidden">');
-    svg.push('<rect x="0" y="0" width="160" height="50" fill="#ffffff" opacity="0.98" rx="6" stroke="', colors.gridLines, '" stroke-width="1" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.1))"/>');
+    svg.push('<rect x="0" y="0" width="160" height="50" fill="', colors.tooltipFill, '" opacity="', colors.tooltipOpacity, '" rx="6" stroke="', colors.tooltipStroke, '" stroke-width="1" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.1))"/>');
     svg.push('<text x="8" y="18" font-size="11" fill="', colors.text, '" id="tooltip-series"></text>');
     svg.push('<text x="8" y="35" font-size="12" font-weight="600" fill="', colors.textPrimary, '" id="tooltip-value"></text>');
     svg.push('</g>');
@@ -366,17 +444,8 @@ function generateStatSVG(series, options) {
     var width = options.width || 300;
     var height = options.height || 150;
 
-    var colors = {
-        background: '#ffffff',
-        border: '#e2e8f0',
-        text: '#4a5568',
-        textPrimary: '#1a202c',
-        accent: '#3b82f6',
-        positive: '#10b981',
-        negative: '#ef4444',
-        neutral: '#6b7280',
-        sparkline: '#3b82f6'
-    };
+    // Theme colours — same palettes as the chart (light / dark / high-contrast).
+    var colors = resolveTheme(options.theme);
 
     // Adaptive sizes
     var valueSize = Math.max(18, Math.min(32, height * 0.25));
@@ -477,7 +546,7 @@ function generateStatSVG(series, options) {
 
     // Build SVG
     var svg = [];
-    svg.push('<svg width="100%" height="100%" viewBox="0 0 ', width, ' ', height, '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">');
+    svg.push('<svg width="100%" height="100%" viewBox="0 0 ', width, ' ', height, '" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="font-family: ', colors.fontFamily, ';">');
     svg.push('<rect width="100%" height="100%" fill="', colors.background, '" stroke="', colors.border, '" stroke-width="1" rx="4"/>');
 
     // Title

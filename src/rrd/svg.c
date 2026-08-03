@@ -104,7 +104,7 @@ void svg_prewarm_context(void) {
     get_thread_context();
 }
 
-char* svg_generate(const char *script_path, MetricData *data, int width, int height) {
+char* svg_generate(const char *script_path, MetricData *data, int width, int height, const char *theme) {
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
@@ -179,6 +179,12 @@ char* svg_generate(const char *script_path, MetricData *data, int width, int hei
     duk_put_prop_string(ctx, -2, "width");
     duk_push_number(ctx, height);
     duk_put_prop_string(ctx, -2, "height");
+
+    /* Add render theme (resolved by generate_svg.js — light/dark/high-contrast) */
+    if (theme && *theme) {
+        duk_push_string(ctx, theme);
+        duk_put_prop_string(ctx, -2, "theme");
+    }
 
     /* Call generateSVG */
     if (duk_pcall(ctx, 2) != 0) {

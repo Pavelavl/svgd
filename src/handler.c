@@ -380,6 +380,13 @@ handler_result_t* handler_process(Config *config,
         }
     }
 
+    /* Resolve render theme: the ?theme= query param overrides "server.theme"
+       from config.json. Unknown values fall back to "light" inside the JS.
+       See docs/gallery.md. */
+    char *theme_query = query ? handler_get_param(query, "theme") : NULL;
+    const char *theme = (theme_query && *theme_query) ? theme_query
+                        : (config->theme[0] ? config->theme : "light");
+
     /* Apply defaults and bounds checking */
     if (svg_width <= 0) svg_width = 800;
     if (svg_width < 200) svg_width = 200;
@@ -475,8 +482,9 @@ handler_result_t* handler_process(Config *config,
 
     /* Generate SVG */
     data->metric_config = metric;
-    char *svg = generate_svg(global_ctx, config->js_script_path, data, svg_width, svg_height);
+    char *svg = generate_svg(global_ctx, config->js_script_path, data, svg_width, svg_height, theme);
     free_metric_data(data);
+    if (theme_query) free(theme_query);
 
     if (!svg) {
         return create_error_result("Failed to generate SVG");

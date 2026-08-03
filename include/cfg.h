@@ -37,6 +37,7 @@ typedef struct {
     int thread_pool_size;       // LSRP worker threads (default: 4)
     int cache_ttl_seconds;      // RRD data cache TTL (default: 5)
     int verbose;                // Verbose logging (default: 0)
+    char theme[16];             // SVG render theme: "light"|"dark"|"high-contrast" (default: "light")
 
     MetricConfig *metrics;
     int metrics_count;

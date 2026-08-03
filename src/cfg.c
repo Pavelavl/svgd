@@ -122,6 +122,7 @@ Config load_config(duk_context *ctx, const char *filename) {
         .thread_pool_size = 4,       // Default: 4 workers (optimal for CPU-bound JS)
         .cache_ttl_seconds = 5,      // Default: 5 second RRD cache
         .verbose = 0,                // Default: quiet mode
+        .theme = "light",            // Default: light theme (see docs/gallery.md)
         .metrics = NULL,
         .metrics_count = 0
     };
@@ -180,6 +181,7 @@ Config load_config(duk_context *ctx, const char *filename) {
             config.thread_pool_size = get_int_field(ctx, "thread_pool_size", 4);
             config.cache_ttl_seconds = get_int_field(ctx, "cache_ttl_seconds", 5);
             config.verbose = get_int_field(ctx, "verbose", 0);
+            set_string_field(ctx, "theme", config.theme, sizeof(config.theme), "light");
         }
         duk_pop(ctx);
     }

@@ -35,9 +35,10 @@ void svg_prewarm_context(void);
  * @param data Metric data to render
  * @param width SVG width in pixels
  * @param height SVG height in pixels
+ * @param theme Render theme ("light"|"dark"|"high-contrast"); NULL/unknown -> light
  * @return Allocated SVG string (caller must free), or NULL on error
  */
-char* svg_generate(const char *script_path, MetricData *data, int width, int height);
+char* svg_generate(const char *script_path, MetricData *data, int width, int height, const char *theme);
 
 /**
  * Acquire a thread-safe Duktape context for non-rendering JS work (e.g. JSON parsing).
@@ -47,7 +48,7 @@ char* svg_generate(const char *script_path, MetricData *data, int width, int hei
 duk_context *svg_get_context(void);
 
 /* Compatibility aliases */
-#define generate_svg(ctx, path, data, width, height) svg_generate(path, data, width, height)
+#define generate_svg(ctx, path, data, width, height, theme) svg_generate(path, data, width, height, theme)
 #define init_js_cache svg_init_cache
 #define free_js_cache svg_free_cache
 #define prewarm_thread_context svg_prewarm_context
