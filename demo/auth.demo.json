@@ -1,0 +1,5 @@
+{
+  "password": "demo",
+  "jwt_secret": "svgd-demo-only-secret-replace-before-deploying-0123456789abcdef",
+  "token_expiry_days": 7
+}

@@ -1,0 +1,21 @@
+# demo/Dockerfile.rrd
+#
+# Tiny one-shot image that regenerates the demo RRD data with timestamps
+# ending at "now", so demo charts are never stale regardless of when the
+# image was built. Built once and cached; the compose `rrd-init` service
+# runs it every `up` to refresh the shared volume.
+#
+# Keeping this separate from the main Dockerfile so the production svgd
+# image stays unchanged (no rrdtool baked into it).
+
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends rrdtool gawk findutils \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY generate-rrd.sh /generate-rrd.sh
+
+# Usage: docker run -v rrd-demo:/data <image> /generate-rrd.sh /data
+ENTRYPOINT ["sh", "/generate-rrd.sh"]
+CMD ["/data"]

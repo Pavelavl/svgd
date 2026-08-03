@@ -58,7 +58,7 @@ SVG_FILES = \
 .PHONY: run-multi down-multi
 .PHONY: bench-svgd-only bench-comparison bench-charts bench-all bench-quick bench-clean
 .PHONY: bench-docker-build bench-docker-up bench-docker-down
-.PHONY: demo demo-down submodule
+.PHONY: demo demo-detached demo-logs demo-down submodule
 .PHONY: docker-login docker-push docker-pull run-from-ghcr
 .PHONY: deploy deploy-local deploy-setup
 
@@ -283,6 +283,28 @@ run-multi: docker-bases
 
 down-multi:
 	docker-compose -f docker-compose.multi.yml down
+
+# ============================================================
+# DEMO (one-command, no collectd / no rrdcached)
+# ============================================================
+
+# Brings up a self-contained dashboard on http://localhost:8080 with
+# synthetic demo data. See docker-compose.demo.yml and demo/.
+demo:
+	@docker image inspect svgd-base:latest >/dev/null 2>&1 \
+		|| { echo "=== Building svgd-base (one-time) ==="; $(MAKE) svgd-base; }
+	docker compose -f docker-compose.demo.yml up --build
+
+# Detached variant: start in the background.
+demo-detached:
+	docker compose -f docker-compose.demo.yml up -d --build
+
+demo-logs:
+	docker compose -f docker-compose.demo.yml logs -f
+
+# Stop the demo (keeps the generated RRD volume; pass -v to reset data).
+demo-down:
+	docker compose -f docker-compose.demo.yml down
 
 # ============================================================
 # GITHUB CONTAINER REGISTRY

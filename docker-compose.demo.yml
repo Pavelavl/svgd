@@ -1,0 +1,67 @@
+# =============================================================================
+# docker-compose.demo.yml  —  one-command demo stack
+#
+#   docker compose -f docker-compose.demo.yml up
+#
+# Brings up a fully working svgd dashboard on http://localhost:8080 with
+# realistic-looking charts — NO collectd, NO rrdcached, NO PostgreSQL, NO
+# external dependencies. Backend + gate only.
+#
+# How it stays fresh: the `rrd-init` one-shot container regenerates the demo
+# RRD files (synthetic time series ending at "now") into a shared volume on
+# every `up`, so charts are never stale regardless of when the image was built.
+# The committed files under demo/rrd/ are the same data, available for direct
+# (non-Docker) use and inspection.
+#
+# Login: the demo gate ships with auth.demo.json (password: "demo").
+# =============================================================================
+services:
+
+  # One-shot: regenerate fresh demo RRD data into the shared volume.
+  rrd-init:
+    build:
+      context: ./demo
+      dockerfile: Dockerfile.rrd
+    image: svgd-demo-rrd:latest
+    command: ["/data"]
+    volumes:
+      - rrd-demo:/data
+
+  # Backend (svgd) — LSRP server, reads the demo RRD.
+  backend:
+    image: svgd-demo:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./bin/svgd", "./config.json"]
+    volumes:
+      - ./demo/config.demo.json:/app/config.json:ro
+      - rrd-demo:/opt/collectd/var/lib/collectd/rrd/localhost:ro
+    depends_on:
+      rrd-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8081 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  # Gateway (svgd-gate) — HTTP server + web UI on :8080.
+  gate:
+    image: svgd-demo:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["./bin/svgd-gate", "backend", "8081", "8080", "./gate/static"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./demo/auth.demo.json:/app/auth.json:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  rrd-demo:

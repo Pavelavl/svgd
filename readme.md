@@ -11,6 +11,28 @@ A lightweight C monitoring system that renders SVG charts from RRD time-series f
 
 <img src="examples/menu.png" width="600"/>
 
+## Quickstart (demo)
+
+Try the full dashboard in one command — **no collectd, no rrdcached, no PostgreSQL, no config files to write**. Only Docker is required.
+
+```bash
+make demo
+# or, if you don't have make:
+docker compose -f docker-compose.demo.yml up --build
+```
+
+Open <http://localhost:8080> and log in with password **`demo`**. You'll get the dashboard above (the screenshot is from `examples/menu.png`) populated with realistic-looking synthetic charts.
+
+**What's running:** just two svgd components — `backend` + `gate` (see `docker-compose.demo.yml`). A tiny one-shot `rrd-init` container regenerates the demo RRD time series (CPU, RAM, swap, load, uptime, disk, network, filesystem, PostgreSQL, TCP, thermal) with timestamps ending *now*, so charts are never empty regardless of when you built the image. The same static data is committed under [`demo/rrd/`](demo/rrd) for direct (non-Docker) use. See [`demo/generate-rrd.sh`](demo/generate-rrd.sh) for the generator.
+
+**Explore:** the default panels are CPU and RAM. Add more via **+ Add Panel** — the demo ships concrete instances for the parametrized metrics: interface **`eth0`**, disk **`sda`**, process **`postgres`**, filesystem **`root`** (e.g. add a *Network Traffic* panel with parameter `eth0`).
+
+**Stop:** `Ctrl+C` (or `make demo-down` if started detached). To reset the generated data, remove the volume: `docker compose -f docker-compose.demo.yml down -v`.
+
+> The demo uses a fixed auth secret (`demo/auth.demo.json`) — fine for local evaluation, not for exposure. For a real deployment with collectd/rrdcached, follow [Installation](#installation) below and see `docker-compose.yml`.
+
+---
+
 ## Why svgd?
 
 - **Extreme resource efficiency** — handles up to **2830 RPS** at **~0% CPU** and **~10 MB RAM**. Graphite under comparable load uses 70% CPU and 241 MB RAM (**24x** more memory); RRDtool CGI is **28–58x slower** in RPS.
