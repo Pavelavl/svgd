@@ -25,7 +25,13 @@ scripts
 !CHANGELOG.md
 !/.github/**/*.md
 !/.infra/install-notes.md
-docs/
+# Documentation site (mkdocs) — tracked (overrides *.md above).
+# git cannot re-include files under an ignored directory, so docs/ is NOT ignored.
+!docs/
+!docs/**
+!ROADMAP.md
+!mkdocs.yml
+
 PRESENTATION.*
 .codegraph/
 
@@ -35,3 +41,9 @@ tests/benchmark/output/*.csv
 # Auth configuration (contains secrets)
 auth.json
 gate/auth/auth.json
+
+# Generated demo RRD data (regenerable via demo/generate-rrd.sh or the rrd-init container)
+demo/rrd/
+
+# mkdocs build output
+site/
