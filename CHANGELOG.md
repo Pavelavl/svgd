@@ -11,13 +11,57 @@ Tracked on the `master` branch. New entries are added here as features land;
 they move to a versioned section on release.
 
 ### Added
-- _(nothing yet)_
+- **Pluggable metric sources (Phase 2)** — `svgd` reads from multiple backends
+  through a `metric_source_t` seam introduced at `rrd_fetch_data()`. A new
+  per-metric `source` field in `config.json` selects the backend (default
+  `"rrd"`, so existing configs are unchanged):
+  - `rrd` — the existing RRD-file path, behavior byte-identical to before.
+  - `proc` — live `/proc` reads (`cpu` from `/proc/stat`, `load` from
+    `/proc/loadavg`) assembled into an in-memory `MetricData` with **no RRD and
+    no disk** — for ultra-constrained "no storage" setups.
+  - `prometheus` — parse Prometheus text-exposition over HTTP
+    (`prometheus_url`) into `MetricData`, so `svgd` can visualize metrics
+    exported by other systems.
+  New translation units `src/metric_source.{c,h}`, `src/proc_source.{c,h}`,
+  `src/prometheus_source.{c,h}`; the existing `src/rrd/cache.c` is reused
+  (source-agnostic cache key). Turns `svgd` from an "RRD viewer" into a
+  universal lightweight metrics visualizer. (`proc`/`prometheus` currently
+  yield a single-point live series; the `prometheus` source is HTTP-only, no
+  TLS — see `docs/configuration.md`.)
+- **SVG theme system** — `light` / `dark` / `high-contrast` render themes in
+  `src/scripts/generate_svg.js` (`THEMES` map + `resolveTheme()`), chosen
+  per-request via the `?theme=` query parameter or globally via `server.theme`
+  in `config.json` (priority: query > config > `light`). The `light` palette is
+  byte-identical to the previous default. Adding a theme is a JS-only edit, no
+  recompile.
+- **Metric & theme gallery** — new `docs/gallery.md` page: theme showcase,
+  metric-type recipes (CPU, RAM, network, disk, process RSS, PostgreSQL) and
+  ready-made `config.json` snippets for common scenarios (a Docker host, a
+  Raspberry Pi), plus a "custom theme" howto. Sample SVGs under
+  `docs/assets/gallery/`; cross-linked from `configuration.md` and
+  `architecture.md`.
+- **C unit-test harness** — `tests/c/` (`minitest.h` + `run.sh` + 7 test
+  binaries) and a `make test-c` target, wired as the first prerequisite of
+  `make test` so pure-logic regressions fail fast before the integration suite.
+  Covers logic previously exercised only end-to-end: RRA step selection
+  (`select_step_from_rras`, extracted from `select_optimal_step`), metric-config
+  lookup (`find_metric_config`), path templating (`build_rrd_path` /
+  `extract_param_from_path`, extracted to `src/path_util.{c,h}`), and
+  `config.json` parsing. ~60 test cases.
+- **svgd-collect standalone CI** — `.github/workflows/ci.yml` in the
+  `svgd-collect` submodule builds and runs its 17 unit tests + 3 integration
+  suites on push/PR (previously the submodule had no CI of its own).
 
 ### Changed
 - _(nothing yet)_
 
 ### Fixed
-- _(nothing yet)_
+- **`load_config` crash on a partial `config.json`** — in `src/cfg.c`, when the
+  `server`, `rrd`, or `js` section was absent, an unbalanced Duktape stack (the
+  pop happened only inside the `if (truthy)` branch) caused a `duk_fatal` /
+  `SIGABRT` on the next section read. The pop is now unconditional. Latent in
+  practice (production configs always carried all sections); regression tests
+  added in `tests/c/test_config.c`.
 
 ### Security
 - _(nothing yet)_

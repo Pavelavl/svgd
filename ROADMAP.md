@@ -18,7 +18,7 @@ The roadmap follows three themes, in priority order:
 
 ## Status legend
 
-- :white_check_mark: **Done** — shipped on `master` (and in the `v0.1.0` tag).
+- :white_check_mark: **Done** — shipped on `master`. (Tagged `v0.1.0` items are in the release; newer items are on `master` awaiting the next release.)
 - :construction: **In progress** — actively being worked on.
 - :bulb: **Planned** — designed and intended, not yet started.
 
@@ -92,26 +92,39 @@ The roadmap follows three themes, in priority order:
       tarball to Arch-standard paths with a `sysusers.d` fragment. (Roadmap item
       P1-10.)
 
+### Pluggable metric sources (Phase 2)
+
+- [x] A `metric_source_t` seam at `rrd_fetch_data()` lets `svgd` read from RRD
+      **and** live `/proc` **and** Prometheus text-exposition, selected
+      per-metric via `config.json` → `source` (default `rrd`). Turns `svgd` from
+      an "RRD viewer" into a universal lightweight visualizer. (Theme 3 / Roadmap
+      item P2-12.)
+
+### Visualization: themes & metric gallery
+
+- [x] `light` / `dark` / `high-contrast` SVG render themes in
+      `generate_svg.js`, selectable via `?theme=` or `server.theme`.
+- [x] `docs/gallery.md` metric & theme gallery with `config.json` recipes for
+      common scenarios and a custom-theme howto. (Roadmap item P3-16.)
+
+### Test & quality
+
+- [x] C unit-test harness (`tests/c/`, `make test-c`) for pure logic, wired as
+      the first prerequisite of `make test`.
+- [x] Standalone CI for the `svgd-collect` submodule (17 unit + 3 integration
+      suites).
+
 ---
 
 ## :construction: In progress
 
-- _(nothing major — v0.1.0 is cut and tagged.)_
+- _(nothing major — v0.1.0 is cut and tagged; the post-release work above
+  (pluggable reader, themes, gallery, C unit tests, svgd-collect CI) has landed
+  on `master` and is awaiting the next release.)_
 
 ---
 
 ## :bulb: Planned
-
-### Ecosystem & visualization
-
-- [ ] **Pluginable reader (Phase 2)** — introduce a `metric_source_t` seam at
-      `src/rrd/reader.c:rrd_fetch_data()` (already a clean boundary) so `svgd`
-      can read from RRD **and** live `/proc` **and** Prometheus text-exposition.
-      Turns `svgd` from an "RRD viewer" into a universal lightweight visualizer.
-      (Roadmap item P2-12.)
-- [ ] **Metric gallery / recipes** — ready-made `config.json` snippets for common
-      scenarios (Postgres, Nginx, a Docker host, a Raspberry Pi) and community
-      chart themes via `generate_svg.js`. (Roadmap item P3-16.)
 
 ### Distribution extras
 
