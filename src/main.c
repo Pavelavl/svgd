@@ -21,6 +21,7 @@
 #include "../lsrp/lsrp_server.h"
 #include "../include/http.h"
 #include "../include/handler.h"
+#include "../include/version.h"  /* SVGD_VERSION, SVGD_REPO_URL (generated) */
 
 /* ============================================================================
  * Crash Handler
@@ -226,6 +227,15 @@ static int lsrp_handler(lsrp_request_t *req, lsrp_response_t *resp) {
  * ============================================================================ */
 
 int main(int argc, char *argv[]) {
+    /* --version / -V: выводим версию и выходим до какой-либо инициализации.
+     * Конфигурация ещё не загружена, поэтому протокол указан как "lsrp"
+     * (значение по умолчанию); runtime-протокол задаётся в config.json. */
+    if (argc > 1 && (strcmp(argv[1], "--version") == 0 ||
+                     strcmp(argv[1], "-V") == 0)) {
+        printf("svgd %s (lsrp)\n%s\n", SVGD_VERSION, SVGD_REPO_URL);
+        return 0;
+    }
+
     /* Install crash handler for SIGSEGV, SIGABRT, SIGBUS */
     struct sigaction sa_crash = { .sa_handler = crash_handler };
     sigemptyset(&sa_crash.sa_mask);

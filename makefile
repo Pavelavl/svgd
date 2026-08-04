@@ -75,13 +75,44 @@ scripts:
 build: scripts build-backend
 	$(CC) -o $(BIN_DIR)/$(GATE_BIN) $(GATE_SRC) -g $(CFLAGS) $(GATE_LIBS)
 
-build-backend: scripts
+build-backend: scripts include/version.h
 	@mkdir -p $(BIN_DIR)
 	$(CC) -o $(BIN_DIR)/$(SERVER_BIN) $(SERVER_SRC) -g $(CFLAGS) $(LIBS)
+
+# ============================================================
+# VERSION HEADER (generated from git describe)
+# ============================================================
+
+# include/version.h is regenerated on every make invocation (via the `force`
+# target), but only written to disk when the version string actually changes
+# (content-cmp through a mktemp file). This keeps the output quiet on no-op
+# builds. The VERSION variable (defined in the DIST section) prefers
+# `git describe --tags --always`, then the VERSION file (tarball), then a
+# literal 0.0.0-dev fallback.
+.PHONY: force
+include/version.h: force
+	@mkdir -p include
+	@tmp=`mktemp`; \
+	{ \
+		echo '/**'; \
+		echo ' * @file version.h'; \
+		echo ' * @brief Версия svgd — авто-генерируется из git describe. Не коммитить.'; \
+		echo ' */'; \
+		echo '#ifndef SVGD_VERSION_H'; \
+		echo '#define SVGD_VERSION_H'; \
+		echo ''; \
+		echo '#define SVGD_VERSION "$(VERSION)"'; \
+		echo '#define SVGD_REPO_URL "https://github.com/Pavelavl/svgd"'; \
+		echo ''; \
+		echo '#endif /* SVGD_VERSION_H */'; \
+	} > $$tmp; \
+	if cmp -s $$tmp include/version.h 2>/dev/null; then rm -f $$tmp; \
+	else mv $$tmp include/version.h; echo "  GEN     include/version.h ($(VERSION))"; fi
 
 clean:
 	rm -f $(BIN_DIR)/$(SERVER_BIN) $(BIN_DIR)/$(GATE_BIN) $(CLIENT_BIN) $(SVG_FILES)
 	rm -f scripts  # Remove symlink
+	rm -f include/version.h  # Generated from git describe
 	rmdir $(EXAMPLES_DIR) 2>/dev/null || true
 
 # ============================================================
@@ -135,7 +166,9 @@ install: build
 # Override with `make VERSION=foo dist` to force a value.
 VERSION ?= $(shell git describe --tags --always 2>/dev/null)
 ifeq ($(strip $(VERSION)),)
-VERSION := 0.0.0-dev
+# No git available (e.g. tarball build) — read the VERSION file stamped by
+# `make dist`, or fall back to a literal dev sentinel.
+VERSION := $(shell cat VERSION 2>/dev/null || echo 0.0.0-dev)
 endif
 
 # Tarballs use the bare semver (strip a leading 'v').

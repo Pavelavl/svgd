@@ -53,3 +53,6 @@ site/
 
 # Release dist tarballs (regenerable via `make dist`)
 dist/
+
+# Generated version header (regenerable via makefile, from `git describe`)
+include/version.h
