@@ -5,6 +5,7 @@
 
 #include "../include/handler.h"
 #include "../include/path_util.h"
+#include "../include/metric_source.h"
 #include "../include/rrd_r.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -257,12 +258,11 @@ static handler_result_t* grafana_query(Config *config, const char *query) {
 
         char *param = NULL;
         if (m->requires_param) param = extract_param_from_path(target, m->endpoint);
-        char rrd_path[512] = {0};
-        build_rrd_path(rrd_path, sizeof(rrd_path), config->rrd_base_path, m->rrd_path, param);
 
-        time_t now = time(NULL);
-        MetricData *data = fetch_metric_data(config->rrdcached_addr, rrd_path,
-                                             now - period, param, m);
+        /* Grafana datasource также идёт через диспетчер источников, чтобы
+         * prometheus/proc-метрики были видны из Grafana наравне с RRD.
+         * use_cache=0: grafana-query сам по себе редок, отдаём свежие данные. */
+        MetricData *data = metric_source_fetch(config, m, param, (int)period, 0);
         if (param) free(param);
 
         if (data) {
@@ -415,34 +415,11 @@ handler_result_t* handler_process(Config *config,
         }
     }
 
-    /* Build RRD file path */
-    char rrd_path[512] = {0};
-    build_rrd_path(rrd_path, sizeof(rrd_path), config->rrd_base_path,
-                   metric->rrd_path, param);
-
-    /* Fetch data (with optional caching) */
-    MetricData *data = NULL;
-
-    if (use_cache) {
-        data = cache_get(rrd_path, period);
-    }
-
-    if (!data) {
-        time_t now = time(NULL);
-        MetricData *fresh_data = fetch_metric_data(config->rrdcached_addr, rrd_path,
-                                                   now - period, param, metric);
-        if (fresh_data) {
-            if (use_cache) {
-                cache_put(rrd_path, period, fresh_data);
-                /* cache_put takes ownership of fresh_data; clone back for use */
-                data = cache_get(rrd_path, period);
-                /* If clone fails (OOM), the data is still in cache but we can't use it now.
-                   Next request will try cache_get again. */
-            } else {
-                data = fresh_data;
-            }
-        }
-    }
+    /* Fetch data via the pluggable source dispatcher (see metric_source.h).
+     * Dispatcher selects rrd/proc/prometheus by metric->source and handles
+     * path/URL/key building + caching. For SRC_RRD this is byte-for-byte
+     * identical to the former inline path-building + rrd_fetch_data logic. */
+    MetricData *data = metric_source_fetch(config, metric, param, period, use_cache);
 
     if (param) free(param);
 

@@ -5,12 +5,28 @@
 #include <stdlib.h>
 #include <duktape.h>
 
+/**
+ * Источник данных метрики (Фаза 2 — плагинабельный reader).
+ * Выбирается per-metric полем "source" в config.json; умолчание SRC_RRD даёт
+ * полную обратную совместимость. См. include/metric_source.h и src/metric_source.c.
+ */
+typedef enum {
+    SRC_RRD = 0,        /* RRD-файл (collectd/svgd-collect). По умолчанию. */
+    SRC_PROC,           /* Live-чтение /proc (без диска). */
+    SRC_PROMETHEUS      /* Prometheus text-exposition (HTTP /metrics). */
+} metric_source_t;
+
 // Metric configuration structure
 typedef struct {
     char endpoint[128];           // e.g., "cpu", "cpu/process", "network"
-    char rrd_path[256];           // Path template (may contain %s for parameter)
+    char rrd_path[256];           // Path template (may contain %s for parameter) — только для SRC_RRD
     int requires_param;           // Does this metric need a parameter?
     char param_name[64];          // Name of parameter (e.g., "process_name", "interface")
+
+    // Источник данных (Фаза 2). По умолчанию SRC_RRD — обратная совместимость.
+    metric_source_t source;
+    char proc_metric[64];         // Для SRC_PROC: имя /proc-метрики ("cpu", "load", ...)
+    char prometheus_url[512];     // Для SRC_PROMETHEUS: URL эндпоинта /metrics
     
     // Display configuration
     char title[128];              // Chart title template (may contain %s)

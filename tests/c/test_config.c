@@ -7,12 +7,12 @@
  * Примечание о покрытии: тестируются реалистичные конфиги, содержащие все
  * верхнеуровневые секции (server/rrd/js/metrics) — как config.sample.json.
  * Синтаксически битый JSON намеренно не тестируется: duk_json_decode без
- * защищённого кадра бросает throw (отдельная задача робастности). Конфиги без
- * секции server/rrd/js также исключены: текущая реализация load_config при
- * отсутствии такой секции оставляет undefined на стеке Duktape, и следующее
- * чтение секции падает (латентный баг, проявляется только на неполных конфигах;
- * рабочий config.json всегда содержит все секции). Эти ограничения — не баги
- * тестов, а границы текущего публичного контракта load_config.
+ * защищённого кадра бросает throw (отдельная задача робастности).
+ *
+ * Раньше конфиги без секции server/rrd/js исключались: load_config оставлял
+ * undefined на стеке Duktape → следующий get_prop падал (латентный баг). Этот
+ * баг починен (безусловный duk_pop), и теперь missing_section_* тесты явно
+ * проверяют устойчивость к неполным конфигам.
  */
 #include "minitest.h"
 #include "cfg.h"
@@ -162,10 +162,113 @@ TEST(json_not_object_returns_defaults) {
     duk_destroy_heap(ctx);
 }
 
+TEST(parses_metric_source_fields) {
+    duk_context *ctx = duk_create_heap_default();
+    ASSERT(ctx != NULL);
+    ASSERT(ensure_tmpdir() == 0);
+    /* Три метрики с разными источниками. RRD-метрика без rrd_path помечается
+     * невалидной (обнуляется), proc/prometheus без rrd_path — валидны (ослабленная
+     * проверка). Также проверяем, что отсутствие поля "source" даёт SRC_RRD. */
+    const char *json =
+        "{"
+        "  \"server\": { \"tcp_port\": 1 },"
+        "  \"rrd\": { \"base_path\": \"/r\" },"
+        "  \"js\": { \"script_path\": \"./s.js\" },"
+        "  \"metrics\": ["
+        "    { \"endpoint\": \"cpu\", \"rrd_path\": \"cpu/percent.rrd\" },"
+        "    { \"endpoint\": \"livecpu\", \"source\": \"proc\","
+        "      \"proc_metric\": \"cpu\" },"
+        "    { \"endpoint\": \"extq\", \"source\": \"prometheus\","
+        "      \"prometheus_url\": \"http://exporter:9100/metrics\" },"
+        "    { \"endpoint\": \"bad\", \"source\": \"rrd\", \"rrd_path\": \"\" }"
+        "  ]"
+        "}";
+    const char *path = write_config("sources.json", json);
+    ASSERT(path != NULL);
+
+    Config c = load_config(ctx, path);
+    ASSERT(c.metrics_count == 4);
+
+    /* [0] без "source" → SRC_RRD (обратная совместимость). */
+    ASSERT(c.metrics[0].source == SRC_RRD);
+    ASSERT_STR(c.metrics[0].rrd_path, "cpu/percent.rrd");
+
+    /* [1] proc: source/proc_metric разобраны; rrd_path пуст, но метрика валидна. */
+    ASSERT(c.metrics[1].source == SRC_PROC);
+    ASSERT_STR(c.metrics[1].proc_metric, "cpu");
+    ASSERT_STR(c.metrics[1].rrd_path, "");
+
+    /* [2] prometheus: url разобран; метрика валидна без rrd_path. */
+    ASSERT(c.metrics[2].source == SRC_PROMETHEUS);
+    ASSERT_STR(c.metrics[2].prometheus_url, "http://exporter:9100/metrics");
+
+    /* [3] SRC_RRD без rrd_path → обнулён (невалиден). */
+    ASSERT(c.metrics[3].source == SRC_RRD);
+    ASSERT_STR(c.metrics[3].endpoint, "");
+
+    free_config(&c);
+    duk_destroy_heap(ctx);
+}
+
+/* Regression-тесты на латентный баг load_config: отсутствие верхнеуровневых
+ * секций больше не роняет парсер (duk_fatal). Раньше при отсутствии секции
+ * undefined оставался на стеке Duktape, следующий get_prop таргетил undefined →
+ * TypeError → SIGABRT. После фикса (безусловный duk_pop) — устойчиво. */
+
+TEST(missing_server_section_keeps_defaults) {
+    duk_context *ctx = duk_create_heap_default();
+    ASSERT(ctx != NULL);
+    ASSERT(ensure_tmpdir() == 0);
+    /* Нет секции server — значения по умолчанию, парсер не падает. */
+    const char *json =
+        "{"
+        "  \"rrd\": { \"base_path\": \"/r\" },"
+        "  \"js\": { \"script_path\": \"./s.js\" },"
+        "  \"metrics\": [ { \"endpoint\": \"cpu\", \"rrd_path\": \"cpu.rrd\" } ]"
+        "}";
+    const char *path = write_config("noserver.json", json);
+    ASSERT(path != NULL);
+
+    Config c = load_config(ctx, path);
+    ASSERT(c.tcp_port == 8080);          /* default */
+    ASSERT(c.thread_pool_size == 4);     /* default */
+    ASSERT(c.metrics_count == 1);
+    ASSERT_STR(c.metrics[0].endpoint, "cpu");
+
+    free_config(&c);
+    duk_destroy_heap(ctx);
+}
+
+TEST(missing_rrd_and_js_sections) {
+    duk_context *ctx = duk_create_heap_default();
+    ASSERT(ctx != NULL);
+    ASSERT(ensure_tmpdir() == 0);
+    /* Есть только server + metrics (нет rrd и js). Раньше отсутствие rrd после
+     * server (или js после rrd) оставляло undefined → fatal. */
+    const char *json =
+        "{"
+        "  \"server\": { \"tcp_port\": 4242 },"
+        "  \"metrics\": [ { \"endpoint\": \"cpu\", \"rrd_path\": \"cpu.rrd\" } ]"
+        "}";
+    const char *path = write_config("norrdjs.json", json);
+    ASSERT(path != NULL);
+
+    Config c = load_config(ctx, path);
+    ASSERT(c.tcp_port == 4242);
+    ASSERT(c.metrics_count == 1);
+    ASSERT_STR(c.metrics[0].endpoint, "cpu");
+
+    free_config(&c);
+    duk_destroy_heap(ctx);
+}
+
 TEST_MAIN()
     RUN(parses_full_config);
     RUN(missing_metrics_section_keeps_defaults);
     RUN(nonexistent_file_returns_defaults);
     RUN(metric_missing_required_fields_zeroed);
     RUN(json_not_object_returns_defaults);
+    RUN(parses_metric_source_fields);
+    RUN(missing_server_section_keeps_defaults);
+    RUN(missing_rrd_and_js_sections);
 TEST_RETURN()

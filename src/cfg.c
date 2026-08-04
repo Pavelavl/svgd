@@ -1,4 +1,5 @@
 #include "../include/cfg.h"
+#include "../include/metric_source.h"
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -108,6 +109,17 @@ static MetricConfig parse_metric_config(duk_context *ctx) {
     set_string_field(ctx, "value_format", metric.value_format, sizeof(metric.value_format), "%.2f");
     set_string_field(ctx, "panel_type", metric.panel_type, sizeof(metric.panel_type), "chart");
 
+    // Источник данных (Фаза 2). По умолчанию "rrd" → SRC_RRD (обратная совместимость).
+    // metric_source_from_string — static inline из include/metric_source.h.
+    {
+        char source_str[32] = {0};
+        set_string_field(ctx, "source", source_str, sizeof(source_str), "rrd");
+        metric.source = metric_source_from_string(source_str);
+    }
+    // Source-специфичные поля (имеют смысл только для соответствующего source).
+    set_string_field(ctx, "proc_metric", metric.proc_metric, sizeof(metric.proc_metric), "");
+    set_string_field(ctx, "prometheus_url", metric.prometheus_url, sizeof(metric.prometheus_url), "");
+
     return metric;
 }
 
@@ -172,35 +184,37 @@ Config load_config(duk_context *ctx, const char *filename) {
     }
 
     // Parse server section
-    if (duk_get_prop_string(ctx, -1, "server")) {
-        if (duk_is_object(ctx, -1)) {
-            config.tcp_port = get_int_field(ctx, "tcp_port", 8080);
-            set_string_field(ctx, "protocol", config.protocol, sizeof(config.protocol), "lsrp");
-            set_string_field(ctx, "allowed_ips", config.allowed_ips, sizeof(config.allowed_ips), "127.0.0.1");
-            set_string_field(ctx, "rrdcached_addr", config.rrdcached_addr, sizeof(config.rrdcached_addr), "");
-            config.thread_pool_size = get_int_field(ctx, "thread_pool_size", 4);
-            config.cache_ttl_seconds = get_int_field(ctx, "cache_ttl_seconds", 5);
-            config.verbose = get_int_field(ctx, "verbose", 0);
-            set_string_field(ctx, "theme", config.theme, sizeof(config.theme), "light");
-        }
-        duk_pop(ctx);
+    /* duk_get_prop_string всегда кладёт значение на стек (undefined, если ключ
+     * отсутствует). Раньше duk_pop был внутри if(truthy), что при отсутствии
+     * секции оставляло undefined на стеке → следующий get_prop таргетил undefined
+     * → TypeError → duk_fatal. Теперь pop безусловен (стек балансируется всегда).
+     * Это фикс давнего латентного бага (см. notes в tests/c/test_config.c). */
+    (void)duk_get_prop_string(ctx, -1, "server");
+    if (duk_is_object(ctx, -1)) {
+        config.tcp_port = get_int_field(ctx, "tcp_port", 8080);
+        set_string_field(ctx, "protocol", config.protocol, sizeof(config.protocol), "lsrp");
+        set_string_field(ctx, "allowed_ips", config.allowed_ips, sizeof(config.allowed_ips), "127.0.0.1");
+        set_string_field(ctx, "rrdcached_addr", config.rrdcached_addr, sizeof(config.rrdcached_addr), "");
+        config.thread_pool_size = get_int_field(ctx, "thread_pool_size", 4);
+        config.cache_ttl_seconds = get_int_field(ctx, "cache_ttl_seconds", 5);
+        config.verbose = get_int_field(ctx, "verbose", 0);
+        set_string_field(ctx, "theme", config.theme, sizeof(config.theme), "light");
     }
+    duk_pop(ctx);
 
     // Parse RRD section
-    if (duk_get_prop_string(ctx, -1, "rrd")) {
-        if (duk_is_object(ctx, -1)) {
-            set_string_field(ctx, "base_path", config.rrd_base_path, sizeof(config.rrd_base_path), "/opt/collectd/var/lib/collectd/rrd/localhost");
-        }
-        duk_pop(ctx);
+    (void)duk_get_prop_string(ctx, -1, "rrd");
+    if (duk_is_object(ctx, -1)) {
+        set_string_field(ctx, "base_path", config.rrd_base_path, sizeof(config.rrd_base_path), "/opt/collectd/var/lib/collectd/rrd/localhost");
     }
+    duk_pop(ctx);
 
     // Parse JS section
-    if (duk_get_prop_string(ctx, -1, "js")) {
-        if (duk_is_object(ctx, -1)) {
-            set_string_field(ctx, "script_path", config.js_script_path, sizeof(config.js_script_path), "");
-        }
-        duk_pop(ctx);
+    (void)duk_get_prop_string(ctx, -1, "js");
+    if (duk_is_object(ctx, -1)) {
+        set_string_field(ctx, "script_path", config.js_script_path, sizeof(config.js_script_path), "");
     }
+    duk_pop(ctx);
 
     // Parse metrics array
     if (duk_get_prop_string(ctx, -1, "metrics")) {
@@ -208,7 +222,7 @@ Config load_config(duk_context *ctx, const char *filename) {
             duk_size_t len = duk_get_length(ctx, -1);
             config.metrics_count = (int)len;
             config.metrics = malloc(sizeof(MetricConfig) * config.metrics_count);
-            
+
             if (!config.metrics) {
                 fprintf(stderr, "Error: Cannot allocate memory for metrics\n");
                 config.metrics_count = 0;
@@ -217,25 +231,29 @@ Config load_config(duk_context *ctx, const char *filename) {
                     duk_get_prop_index(ctx, -1, i);
                     if (duk_is_object(ctx, -1)) {
                         config.metrics[i] = parse_metric_config(ctx);
-                        
-                        // Validate required fields
-                        if (strlen(config.metrics[i].endpoint) == 0 || strlen(config.metrics[i].rrd_path) == 0) {
+
+                        /* Валидация: endpoint обязателен всегда; rrd_path — только
+                         * для SRC_RRD (proc/prometheus не используют RRD-файлы). */
+                        MetricConfig *m = &config.metrics[i];
+                        int invalid = (strlen(m->endpoint) == 0);
+                        if (m->source == SRC_RRD && strlen(m->rrd_path) == 0) invalid = 1;
+                        if (invalid) {
                             fprintf(stderr, "Warning: Metric at index %zu has missing required fields, skipping\n", i);
                             memset(&config.metrics[i], 0, sizeof(MetricConfig));
                         }
                     }
                     duk_pop(ctx);
                 }
-                
+
                 fprintf(stderr, "Loaded %d metrics from config\n", config.metrics_count);
             }
         } else {
             fprintf(stderr, "Warning: 'metrics' is not an array\n");
         }
-        duk_pop(ctx);
     } else {
         fprintf(stderr, "Warning: No 'metrics' section found in config\n");
     }
+    duk_pop(ctx);
 
     duk_pop_n(ctx, duk_get_top(ctx) - top);
     return config;

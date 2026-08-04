@@ -51,6 +51,7 @@ run_test test_step   tests/c/test_step.c   src/rrd/reader.c -- -lrrd -lm
 run_test test_cfg    tests/c/test_cfg.c    src/cfg.c        -- -lduktape
 run_test test_path   tests/c/test_path.c   src/path_util.c  --
 run_test test_config tests/c/test_config.c src/cfg.c        -- -lduktape
+run_test test_source tests/c/test_source.c --
 
 echo
 echo "C unit tests: $PASS passed, $FAIL failed"
