@@ -11,6 +11,10 @@ Tracked on the `master` branch. New entries are added here as features land;
 they move to a versioned section on release.
 
 ### Added
+- **`svgd --version` / `-V`** — prints the build version (from `git describe
+  --tags --always`, generated into `include/version.h` at build time) and the
+  repo URL, then exits 0. Works without `config.json` — handled before any
+  initialization in `main()`.
 - **Pluggable metric sources (Phase 2)** — `svgd` reads from multiple backends
   through a `metric_source_t` seam introduced at `rrd_fetch_data()`. A new
   per-metric `source` field in `config.json` selects the backend (default
@@ -53,7 +57,14 @@ they move to a versioned section on release.
   suites on push/PR (previously the submodule had no CI of its own).
 
 ### Changed
-- _(nothing yet)_
+- **HTTP-mode cache parity** — `server.protocol: "http"` now initializes the
+  RRD data cache and pre-warms the Duktape JS context, matching LSRP mode.
+  Repeated HTTP requests within `cache_ttl_seconds` are served from cache
+  instead of re-reading the RRD file. The `protocol != "http"` guard in
+  `main()` is removed; HTTP remains single-threaded (no thread pool) but is no
+  longer a cache-less cold-start path. LSRP worker threads continue to
+  pre-warm their own thread-local contexts in `lsrp_server.c::worker_thread`;
+  the single HTTP main thread is pre-warmed in `main()`.
 
 ### Fixed
 - **`load_config` crash on a partial `config.json`** — in `src/cfg.c`, when the

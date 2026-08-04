@@ -142,8 +142,10 @@ static void run_http_server(int port) {
             fprintf(stderr, "HTTP: %s %s (period=%d)\n", req.method, req.path, period);
         }
 
-        /* Process request (width/height will be parsed from query in handler) */
-        handler_result_t *result = handler_process(&global_config, endpoint, req.query, period, 0, 0, 0);
+        /* Process request with caching (width/height parsed from query in handler).
+         * use_cache=1: repeated requests within cache_ttl_seconds are served from
+         * the RRD cache instead of re-reading the file. Parity with LSRP mode. */
+        handler_result_t *result = handler_process(&global_config, endpoint, req.query, period, 0, 0, 1);
 
         if (result && result->status == 0) {
             http_send_response(client_sock,
@@ -257,11 +259,30 @@ int main(int argc, char *argv[]) {
     /* Set up verbose logging */
     verbose_logging = global_config.verbose;
 
-    /* Initialize RRD cache for LSRP mode */
-    if (strcmp(global_config.protocol, "http") != 0) {
-        init_rrd_cache(global_config.cache_ttl_seconds);
-        init_js_cache(global_config.js_script_path);
-        fprintf(stderr, "JS cache pre-warmed for LSRP workers\n");
+    /* Determine protocol early (needed for cache/pre-warm decisions below) */
+    const char *protocol = global_config.protocol;
+    if (strlen(protocol) == 0) protocol = "lsrp";
+
+    /* Initialize RRD data cache + JS context cache for BOTH modes.
+     *
+     * Formerly HTTP mode skipped this (protocol != "http" guard), leaving it
+     * cache-less with a cold-start JS context on every request. With cache
+     * parity, HTTP now serves repeated requests from the RRD cache and reuses
+     * a pre-warmed Duktape context — closing the feature gap with LSRP without
+     * the complexity of a thread pool (HTTP stays single-threaded).
+     *
+     * LSRP worker threads pre-warm their own thread-local contexts in
+     * worker_thread() (lsrp_server.c); the HTTP main thread handles all
+     * requests itself, so we pre-warm its sole context here. */
+    init_rrd_cache(global_config.cache_ttl_seconds);
+    init_js_cache(global_config.js_script_path);
+
+    if (strcmp(protocol, "http") == 0) {
+        svg_prewarm_context();  /* HTTP: single main thread — pre-warm here */
+        fprintf(stderr, "RRD cache + JS context initialized for HTTP (ttl=%ds)\n",
+                global_config.cache_ttl_seconds);
+    } else {
+        fprintf(stderr, "RRD cache + JS cache initialized for LSRP workers\n");
     }
 
     if (global_config.metrics_count == 0) {
@@ -269,10 +290,6 @@ int main(int argc, char *argv[]) {
         duk_destroy_heap(global_ctx);
         return 1;
     }
-
-    /* Determine protocol */
-    const char *protocol = global_config.protocol;
-    if (strlen(protocol) == 0) protocol = "lsrp";
 
     fprintf(stderr, "Starting %s server on port %d (%d metrics)\n",
             protocol, global_config.tcp_port, global_config.metrics_count);

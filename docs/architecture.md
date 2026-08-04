@@ -31,9 +31,10 @@ Reads RRD time-series files and renders SVG. The same business logic core —
 - **LSRP mode** (`server.protocol: "lsrp"`, the default): binary wire protocol
   over TCP, a thread pool, and two caches (RRD data and JS contexts). This is
   the high-throughput production path.
-- **HTTP mode** (`server.protocol: "http"`): single-threaded plain-HTTP fallback.
-  Caching is **disabled** in this mode (guarded by the
-  `protocol != "http"` check in `main()`).
+- **HTTP mode** (`server.protocol: "http"`): single-threaded plain-HTTP mode.
+  Since v0.2.0 it has **full cache parity** with LSRP — the RRD data cache and
+  JS context pre-warm are initialized the same way. The only difference is
+  concurrency (single-threaded vs. thread pool).
 
 **Two caches** live in `src/rrd/`:
 
@@ -42,7 +43,7 @@ Reads RRD time-series files and renders SVG. The same business logic core —
 | RRD data | `cache.c` | TTL-based hash table keyed by RRD path + period. Clones `MetricData` for thread safety. |
 | JS contexts | `svg.c` | Per-thread Duktape contexts, pre-warmed at startup, so each request skips engine init. |
 
-Both are initialized **only in LSRP mode**.
+Both are initialized in **both modes** (since v0.2.0 — formerly HTTP skipped them).
 
 ### `svgd-gate` — the HTTP gateway (`gate/`)
 

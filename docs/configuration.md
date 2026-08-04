@@ -35,17 +35,19 @@ Copy `config.sample.json` to `config.json` and edit.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `tcp_port` | int | `8081` | TCP port the backend listens on (LSRP or HTTP). |
-| `protocol` | string | `"lsrp"` | Transport: `"lsrp"` (binary, thread pool, caching) or `"http"` (single-threaded, caching disabled). |
+| `protocol` | string | `"lsrp"` | Transport: `"lsrp"` (binary, thread pool) or `"http"` (single-threaded plain HTTP). Both modes use RRD caching and pre-warmed JS contexts. |
 | `allowed_ips` | string | `"127.0.0.1"` | Comma-separated allowlist of client IPs. |
 | `rrdcached_addr` | string | `""` | rrdcached address — `unix:/path/to.sock` or `host:port`. Empty = direct file I/O. |
 | `thread_pool_size` | int | `4` | Worker threads (LSRP mode only). |
-| `cache_ttl_seconds` | int | `5` | TTL for cached RRD data (LSRP mode only). |
+| `cache_ttl_seconds` | int | `5` | TTL for cached RRD data (both modes). |
 | `verbose` | int | `0` | Logging verbosity (`0` = quiet). |
 | `theme` | string | `"light"` | SVG render theme: `"light"`, `"dark"`, or `"high-contrast"`. Overridden per-request by the `?theme=` query parameter. See [Gallery](gallery.md#themes). |
 
-> **Production note:** HTTP mode (`"protocol": "http"`) is a compatibility
-> fallback — single-threaded, no caching, no pre-warmed JS contexts. Use LSRP
-> mode for any throughput-sensitive deployment.
+> **Production note:** HTTP mode (`"protocol": "http"`) is single-threaded but
+> has full cache + JS-pre-warm parity with LSRP (since v0.2.0) — repeated
+> requests within `cache_ttl_seconds` are served from the RRD cache. LSRP mode
+> remains the high-throughput choice (thread pool, near-linear scaling); HTTP is
+> suitable for low-to-medium traffic or when an LSRP client is unavailable.
 
 ### `rrd.*`
 
