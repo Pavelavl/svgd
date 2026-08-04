@@ -18,6 +18,7 @@
  */
 #include "../include/metric_source.h"
 #include "../include/path_util.h"
+#include "../include/proc_source.h"
 #include "../include/rrd/cache.h"
 #include <time.h>
 #include <stdio.h>
@@ -59,11 +60,8 @@ MetricData* metric_source_fetch(Config *config, MetricConfig *metric,
     }
 
     case SRC_PROC: {
-        /* Stage 2 (TODO): live-чтение /proc → сборка MetricData в памяти.
-         * Бэкенд будет в src/proc_source.c. Пока источник не реализован. */
-        fprintf(stderr, "Warning: metric '%s' uses proc source (not yet implemented)\n",
-                metric->endpoint);
-        data = NULL;
+        /* Stage 2: live-чтение /proc → сборка MetricData в памяти (без диска). */
+        data = proc_source_fetch(config, metric, period);
         break;
     }
 
