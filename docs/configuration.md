@@ -83,6 +83,75 @@ endpoint to an RRD file and describes how to render it.
 | `transform_type` | Value transform: `"none"`, `"divide"`, `"sum"`, `"multiply"`. |
 | `transform_divisor` | Divisor applied for `"divide"` (e.g. bytes → MB). |
 | `value_format` | `printf`-style output format, e.g. `"%.1f"`. |
+| `source` | Data source backend: `"rrd"` (default), `"proc"`, or `"prometheus"`. Selects where the metric is read from — see [Metric sources](#metric-sources-source) below. |
+| `proc_metric` | For `source: "proc"`: which `/proc` reader to use — `"cpu"` (`/proc/stat` utilization %) or `"load"` (`/proc/loadavg`). |
+| `prometheus_url` | For `source: "prometheus"`: URL of the exporter's `/metrics` endpoint, e.g. `http://node_exporter:9100/metrics`. HTTP only (no TLS). The metric name to extract equals `endpoint`. |
+
+### Metric sources (`source`)
+
+By default every metric reads from an RRD file (collectd / `svgd-collect`).
+Setting `source` per-metric switches the backend, so `svgd` can also visualize
+**live `/proc`** and **Prometheus text-exposition** — turning it from an
+RRD-only viewer into a universal lightweight metric visualizer. Unknown values
+fall back to `"rrd"` (full backward compatibility).
+
+| `source` | Reads | When to use |
+|----------|-------|-------------|
+| `"rrd"` (default) | RRD file at `rrd_path` under `rrd.base_path` | Historical series stored by collectd or `svgd-collect`. |
+| `"proc"` | Live values from `/proc` (no disk) | "No RRD at all" on very constrained devices. Single current sample per series. |
+| `"prometheus"` | Prometheus text-exposition over HTTP (`prometheus_url`) | Visualize metrics emitted by any Prometheus exporter (node_exporter, …). |
+
+For `source: "rrd"`, `rrd_path` is required (and `%s` parameters work as
+described below). For `"proc"` / `"prometheus"`, `rrd_path` is not used and may
+be omitted.
+
+**Live CPU from `/proc` (no RRD needed):**
+
+```json
+{
+  "endpoint": "livecpu",
+  "source": "proc",
+  "proc_metric": "cpu",
+  "title": "Live CPU Utilization",
+  "y_label": "Usage (%)",
+  "is_percentage": true,
+  "value_format": "%.1f",
+  "panel_type": "stat"
+}
+```
+
+**Load average from `/proc/loadavg` (three series: 1/5/15 min):**
+
+```json
+{
+  "endpoint": "load",
+  "source": "proc",
+  "proc_metric": "load",
+  "title": "Load Average",
+  "y_label": "Load",
+  "value_format": "%.2f"
+}
+```
+
+**A metric from a Prometheus exporter** (`endpoint` is the metric name to
+extract; each distinct label set becomes one series):
+
+```json
+{
+  "endpoint": "node_memory_MemAvailable_bytes",
+  "source": "prometheus",
+  "prometheus_url": "http://node_exporter:9100/metrics",
+  "title": "Memory Available (node_exporter)",
+  "y_label": "Bytes",
+  "value_format": "%.0f"
+}
+```
+
+> **Live sources caveat:** `proc` and `prometheus` read the *current* value, so
+> each series carries a single point (no historical series). This is deliberate
+> for Stage 2/3 — an in-memory ring buffer could extend series to the last N
+> samples in the future. `prometheus` is HTTP-only (raw socket, no TLS, no new
+> dependency); point LAN exporters at it directly.
 
 ### URL path parameters (`%s`)
 

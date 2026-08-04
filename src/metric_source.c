@@ -19,6 +19,7 @@
 #include "../include/metric_source.h"
 #include "../include/path_util.h"
 #include "../include/proc_source.h"
+#include "../include/prometheus_source.h"
 #include "../include/rrd/cache.h"
 #include <time.h>
 #include <stdio.h>
@@ -66,11 +67,8 @@ MetricData* metric_source_fetch(Config *config, MetricConfig *metric,
     }
 
     case SRC_PROMETHEUS: {
-        /* Stage 3 (TODO): парсинг Prometheus text-exposition (HTTP GET /metrics).
-         * Бэкенд будет в src/prometheus_source.c. Пока источник не реализован. */
-        fprintf(stderr, "Warning: metric '%s' uses prometheus source (not yet implemented)\n",
-                metric->endpoint);
-        data = NULL;
+        /* Stage 3: парсинг Prometheus text-exposition (HTTP GET /metrics). */
+        data = prometheus_source_fetch(config, metric, period);
         break;
     }
 

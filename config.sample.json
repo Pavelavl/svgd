@@ -126,6 +126,34 @@
 			"param_name": "mount_point",
 			"transform_type": "divide",
 			"transform_divisor": 1073741824
+		},
+		{
+			"endpoint": "livecpu",
+			"source": "proc",
+			"proc_metric": "cpu",
+			"title": "Live CPU Utilization",
+			"y_label": "Usage (%)",
+			"is_percentage": true,
+			"value_format": "%.1f",
+			"panel_type": "stat"
+		},
+		{
+			"endpoint": "load",
+			"source": "proc",
+			"proc_metric": "load",
+			"title": "Load Average",
+			"y_label": "Load",
+			"is_percentage": false,
+			"value_format": "%.2f"
+		},
+		{
+			"endpoint": "node_memory_MemAvailable_bytes",
+			"source": "prometheus",
+			"prometheus_url": "http://127.0.0.1:9100/metrics",
+			"title": "Memory Available (Prometheus)",
+			"y_label": "Bytes",
+			"is_percentage": false,
+			"value_format": "%.0f"
 		}
 	]
 }
